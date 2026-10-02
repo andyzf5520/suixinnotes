@@ -50,6 +50,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
@@ -66,6 +67,7 @@ import java.util.Locale
 
 class MainActivity : ComponentActivity() {
     var onBackground: (() -> Unit)? = null
+    var onForeground: (() -> Unit)? = null
     private var externalUntil = 0L
     private var pickerTimeout: Runnable? = null
     private val handler = Handler(Looper.getMainLooper())
@@ -92,6 +94,7 @@ class MainActivity : ComponentActivity() {
     }
     override fun onResume() {
         super.onResume()
+        onForeground?.invoke()
         if (externalUntil != 0L && SystemClock.elapsedRealtime() > externalUntil) onBackground?.invoke()
         externalUntil = 0L
         pickerTimeout?.let(handler::removeCallbacks); pickerTimeout = null
@@ -125,7 +128,15 @@ private fun family(key: String) = when(key) { "serif" -> FontFamily.Serif; "mono
 
 @Composable fun MoBox(activity: MainActivity) {
     val store = remember { VaultStore(activity) }
+    val deviceAccess = remember { DeviceAccess(activity) }
+    var autoAttempted by remember { mutableStateOf(false) }
+    var foreground by remember { mutableStateOf(true) }
+    var closing by remember { mutableStateOf(false) }
+    var selecting by remember { mutableStateOf(false) }
+    var selectionIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var pendingMove by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    val drawerState = rememberDrawerState(DrawerValue.Closed)
     var session by remember { mutableStateOf<Session?>(null) }
     var vault by remember { mutableStateOf(Vault.fresh()) }
     var notes by remember { mutableStateOf<List<Note>>(emptyList()) }
@@ -186,22 +197,37 @@ private fun family(key: String) = when(key) { "serif" -> FontFamily.Serif; "mono
             } finally { if (token == epoch) busy = false }
         }
     }
-    fun clearDialogs() { dialog = ""; password = ""; confirmation = ""; categoryPassword = ""; incoming = null; incomingSummary = null; restorePassword = ""; pendingOutput = null }
+    fun clearDialogs() { dialog = ""; password = ""; confirmation = ""; categoryPassword = ""; incoming = null; incomingSummary = null; restorePassword = ""; pendingOutput = null; pendingMove = false }
     fun lock() {
         val s = session; val dirty = draft?.takeIf { it != savedDraft }
         epoch++; busy = false; session = null; notes = emptyList(); vault = Vault.fresh()
         draft = null; savedDraft = null; failedDraft = null; history = null; returnAfterSave = false; clearDialogs(); query = ""; selected = null; page = "notes"; message = ""
-        if (s != null) scope.launch {
+        selecting = false; selectionIds = emptySet()
+        if (s != null) { closing = true; scope.launch {
             try { if(dirty != null) withContext(Dispatchers.IO) { s.saveNote(dirty) } }
             catch (_: Exception) { message = "锁定前保存失败，请重新解锁检查最近记录" }
-            finally { withContext(Dispatchers.IO) { s.close() } }
+            finally { withContext(Dispatchers.IO) { s.close() }; closing = false }
+        } }
+    }
+    DisposableEffect(activity) {
+        activity.onBackground = { foreground = false; autoAttempted = false; lock() }
+        activity.onForeground = { foreground = true; autoAttempted = false }
+        onDispose { activity.onBackground = null; activity.onForeground = null }
+    }
+    LaunchedEffect(foreground, autoAttempted, closing, session) {
+        if(foreground && !autoAttempted && !closing && session == null && !busy) {
+            autoAttempted = true
+            work({
+                var chars = deviceAccess.load()
+                if(chars == null && !store.exists()) { chars = deviceAccess.generate(); deviceAccess.save(chars) }
+                chars?.let { try { if(store.exists()) store.open(it) else store.create(it) } finally { it.fill('\u0000') } }
+            }) { s -> if(s != null) { session = s; refresh(s); activity.lastInteraction = SystemClock.elapsedRealtime() } }
         }
     }
-    DisposableEffect(activity) { activity.onBackground = { lock() }; onDispose { activity.onBackground = null } }
     LaunchedEffect(session) {
-        while (session != null) { delay(10_000); if(SystemClock.elapsedRealtime() - activity.lastInteraction > 300_000) lock() }
+        while (session != null) { delay(10_000); if(SystemClock.elapsedRealtime() - activity.lastInteraction > 300_000) { autoAttempted = false; lock() } }
     }
-    fun edit(note: Note) { draft = note; savedDraft = note; failedDraft = null; history = EditHistory(note); returnAfterSave = false; saveStatus = ""; page = "editor" }
+    fun edit(note: Note) { scope.launch { drawerState.close() }; draft = note; savedDraft = note; failedDraft = null; history = EditHistory(note); returnAfterSave = false; saveStatus = ""; page = "editor" }
     fun save(close: Boolean = false) {
         val s = session ?: return; val d = draft ?: return
         if(close) returnAfterSave = true
@@ -280,10 +306,12 @@ private fun family(key: String) = when(key) { "serif" -> FontFamily.Serif; "mono
             if(session == null) {
                 Column(Modifier.fillMaxSize().safeDrawingPadding().imePadding().padding(28.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.Center) {
                     Text("随心记事本", fontSize = 36.sp, fontWeight = FontWeight.Bold)
-                    Text("v${BuildConfig.VERSION_NAME} · 作者 andy", style = MaterialTheme.typography.bodySmall)
+                    Text("记录生活，安心保存", style = MaterialTheme.typography.bodySmall)
                     Text("把日常与秘密，妥帖收藏。", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 12.dp))
                     Spacer(Modifier.height(32.dp))
-                    Text(if(store.exists()) "解锁你的笔记" else "创建本地保险库", style = MaterialTheme.typography.titleLarge)
+                    Text(if(store.exists()) "旧版数据首次迁移" else "正在准备本地笔记", style = MaterialTheme.typography.titleLarge)
+                    if(busy || closing || !autoAttempted) CircularProgressIndicator(Modifier.padding(20.dp))
+                    else if(store.exists()) {
                     SecretField(password, { password = it }, "主密码", Modifier.padding(top = 18.dp))
                     if(!store.exists()) {
                         SecretField(confirmation, { confirmation = it }, "再次输入主密码", Modifier.padding(top = 12.dp))
@@ -292,51 +320,71 @@ private fun family(key: String) = when(key) { "serif" -> FontFamily.Serif; "mono
                     Button(onClick = {
                         val chars = password.toCharArray(); val create = !store.exists()
                         if(create && (password.length < 8 || password != confirmation)) { message = "主密码至少 8 位，两次输入须一致"; chars.fill('\u0000') }
-                        else work({ try { if(create) store.create(chars) else store.open(chars) } finally { chars.fill('\u0000') } }) { s ->
+                        else work({ try { (if(create) store.create(chars) else store.open(chars)).also { deviceAccess.save(chars) } } finally { chars.fill('\u0000') } }) { s ->
                             session = s; refresh(s); password = ""; confirmation = ""; activity.lastInteraction = SystemClock.elapsedRealtime()
                         }
                     }, enabled = !busy, modifier = Modifier.fillMaxWidth().padding(top = 18.dp)) { Text(if(busy) "正在处理…" else if(store.exists()) "解锁" else "创建保险库") }
+                    }
                     TextButton(onClick = { activity.allowPicker(); openFile.launch(arrayOf("*/*")) }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("从加密备份恢复") }
                     if(store.previousExists()) TextButton(onClick = { dialog = "previous" }, enabled = !busy) { Text("切换至恢复前的本地版本") }
                     if(message.isNotEmpty()) Text(message, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(vertical = 12.dp))
                     Text("离线使用 · 数据本地加密 · 无需注册", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 28.dp))
                 }
             } else {
+                ModalNavigationDrawer(drawerState = drawerState, gesturesEnabled = page in listOf("notes", "todo"), drawerContent = {
+                    ModalDrawerSheet(Modifier.width(300.dp)) {
+Column(Modifier.fillMaxSize().safeDrawingPadding().padding(horizontal = 16.dp)) {
+                            Column(Modifier.fillMaxWidth().heightIn(max = 190.dp).verticalScroll(rememberScrollState()).padding(vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                FilterChip(selected == null, { selected = null }, label = { Text("全部") }, modifier = Modifier.fillMaxWidth())
+                                vault.categories.sortedByDescending { it.pinned }.forEach { c -> Row(verticalAlignment = Alignment.CenterVertically) {
+                                    FilterChip(selected == c.id, {
+                                        selected = c.id; selectionIds = emptySet()
+                                        if(session?.isOpen(c.id) == false) { categoryTarget = c; categoryPassword = ""; dialog = "unlock" }
+                                        else scope.launch { drawerState.close() }
+                                    }, label = { Text((if(c.sealed != null) "▣ " else "▤ ") + if(c.id == Session.BOX_ID) "私密" else c.name) }, modifier = Modifier.weight(1f))
+                                    IconButton(onClick = { val current = session!!; work({ current.pinCategory(c.id, !c.pinned) }) { refresh(current) } }, enabled = !busy) { Icon(Icons.Outlined.PushPin, if(c.pinned) "取消分类置顶" else "置顶分类", tint = if(c.pinned) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant) }
+                                } }
+                                if(vault.categories.none { it.id == Session.BOX_ID }) FilterChip(selected == Session.BOX_ID, { selected = Session.BOX_ID; password = ""; confirmation = ""; categoryPassword = ""; dialog = "box" }, label = { Text("▣ 私密") }, modifier = Modifier.fillMaxWidth())
+                                AssistChip({ page = "categories"; scope.launch { drawerState.close() } }, label = { Text("分类管理") })
+                            }
+                            Text("分类内的标题", style = MaterialTheme.typography.labelLarge)
+                            val sidebarNotes = NoteOrdering.sorted(notes.filter { selected == null || it.categoryId == selected }, prefs.sort)
+                            LazyColumn(Modifier.weight(1f)) {
+                                items(sidebarNotes, key = { it.id }) { n ->
+                                    TextButton(onClick = { edit(n) }, modifier = Modifier.fillMaxWidth()) { Text(n.displayTitle(), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.fillMaxWidth()) }
+                                }
+                            }
+                        }
+                    }
+                }) {
                 Scaffold(containerColor = MaterialTheme.colorScheme.background, topBar = {
                     Column(Modifier.statusBarsPadding().padding(horizontal = 20.dp, vertical = 12.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
+                            if(page != "editor") IconButton(onClick = { scope.launch { drawerState.open() } }) { Icon(Icons.Outlined.Menu, "打开左侧分类与记录") }
                             if(page == "editor") IconButton(onClick = { save(true) }, enabled = !busy) { Icon(Icons.Outlined.ArrowBack, "保存并返回") }
-                            Text(when(page) { "editor" -> "编辑"; "categories" -> "分类"; "settings" -> "个性化"; "backup" -> "备份与导出"; "me" -> "设置"; "todo" -> "待办"; else -> "笔记" }, style = if(page == "editor") MaterialTheme.typography.titleMedium else MaterialTheme.typography.headlineLarge, modifier = Modifier.weight(1f))
+                            Text(when(page) { "editor" -> "编辑"; "categories" -> "分类"; "settings" -> "个性化"; "backup" -> "备份与导出"; "me" -> "设置"; "about" -> "关于"; "todo" -> "待办"; else -> "笔记" }, style = if(page == "editor") MaterialTheme.typography.titleMedium else MaterialTheme.typography.headlineLarge, modifier = Modifier.weight(1f))
                             if(page == "editor") {
                                 IconButton(onClick = { history = history?.undo(System.currentTimeMillis()); draft = history?.current }, enabled = history?.canUndo == true && !busy) { Icon(Icons.Outlined.Undo, "撤销", Modifier.size(22.dp)) }
                                 IconButton(onClick = { history = history?.redo(System.currentTimeMillis()); draft = history?.current }, enabled = history?.canRedo == true && !busy) { Icon(Icons.Outlined.Redo, "重做", Modifier.size(22.dp)) }
                             }
-                            IconButton(onClick = { lock() }) { Icon(Icons.Outlined.Lock, "锁定保险库") }
+                            IconButton(enabled = page != "editor" && !busy, onClick = { val s = session!!; vault.categories.filter { it.sealed != null }.forEach { s.lockCategory(it.id) }; refresh(s); selectionIds = emptySet(); message = "私密分类已锁定" }) { Icon(Icons.Outlined.Lock, "锁定私密分类") }
                             if(page == "editor") IconButton(onClick = { save(true) }, enabled = !busy) { Icon(Icons.Outlined.Check, "保存并返回") }
                         }
+                        if(page in listOf("notes", "todo")) OutlinedTextField(query, { query = it }, placeholder = { Text("搜索已解锁记录") }, leadingIcon = { Icon(Icons.Outlined.Search, null) }, singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp))
                         if(busy) LinearProgressIndicator(Modifier.fillMaxWidth())
                         if(message.isNotEmpty()) Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary, modifier = Modifier.clickable { message = "" }.padding(top = 8.dp))
                     }
                 }, bottomBar = {
                     if(page != "editor") NavigationBar {
                         listOf(Triple("notes", "笔记", Icons.Outlined.Description), Triple("todo", "待办", Icons.Outlined.Checklist), Triple("me", "设置", Icons.Outlined.Settings)).forEach { (id,label,icon) ->
-                            NavigationBarItem(selected = page == id || (id == "me" && page in listOf("categories", "settings", "backup")), onClick = { page = id }, icon = { Icon(icon, label) }, label = { Text(label) })
+                            NavigationBarItem(selected = page == id || (id == "me" && page in listOf("categories", "settings", "backup", "about")), onClick = { page = id }, icon = { Icon(icon, label) }, label = { Text(label) })
                         }
                     }
                 }, floatingActionButton = {
                     if(page in listOf("notes", "todo")) FloatingActionButton(onClick = { dialog = "new" }) { Icon(Icons.Outlined.Add, "新建记录") }
                 }) { padding ->
                     when(page) {
-                        "notes", "todo" -> Column(Modifier.padding(padding).padding(horizontal = 16.dp)) {
-                            OutlinedTextField(query, { query = it }, placeholder = { Text("搜索已解锁的记录") }, leadingIcon = { Icon(Icons.Outlined.Search, null) }, singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp))
-                            Row(Modifier.fillMaxWidth().padding(vertical = 10.dp).horizontalScrollCompat(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                FilterChip(selected == null, { selected = null }, label = { Text("全部") })
-                                vault.categories.forEach { c -> FilterChip(selected == c.id, {
-                                    selected = c.id
-                                    if(session?.isOpen(c.id) == false) { categoryTarget = c; categoryPassword = ""; dialog = "unlock" }
-                                }, label = { Text((if(c.sealed != null) "▣ " else "") + c.name) }) }
-                                AssistChip({ page = "categories" }, label = { Text("管理") })
-                            }
+                        "notes", "todo" -> Column(Modifier.padding(padding).fillMaxSize().padding(horizontal = 16.dp)) {
                             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                                 var sortMenu by remember { mutableStateOf(false) }
                                 Box(Modifier.weight(1f)) {
@@ -347,6 +395,10 @@ private fun family(key: String) = when(key) { "serif" -> FontFamily.Serif; "mono
                                 }
                                 IconButton(onClick = { val s = session!!; work({ s.updatePrefs(prefs.copy(grid = !prefs.grid)) }) { refresh(s) } }, enabled = !busy) { Icon(if(prefs.grid) Icons.Outlined.ViewList else Icons.Outlined.GridView, if(prefs.grid) "切换为单行标题" else "切换为卡片") }
                             }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                TextButton(onClick = { selecting = !selecting; selectionIds = emptySet() }) { Text(if(selecting) "取消多选" else "选择记录") }
+                                if(selecting) TextButton(onClick = { dialog = "move" }, enabled = selectionIds.isNotEmpty() && !busy) { Text("移入分类 (${selectionIds.size})") }
+                            }
                             val visible = NoteOrdering.sorted(notes.filter { (selected == null || it.categoryId == selected) && (page != "todo" || it.kind == "todo") && (it.displayTitle() + it.body + it.username).contains(query, ignoreCase = true) }, prefs.sort)
                             if(vault.categories.any { it.sealed != null && session?.isOpen(it.id) == false }) Text("部分分类已锁定，内容不参与搜索", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 10.dp))
                             if(visible.isEmpty()) Column(Modifier.fillMaxWidth().padding(top = 70.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -354,10 +406,20 @@ private fun family(key: String) = when(key) { "serif" -> FontFamily.Serif; "mono
                                 Text("留一页给今天", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(top = 20.dp))
                                 Text("点击 ＋，开始笔记、账号或待办", modifier = Modifier.padding(top = 8.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
-                            if(prefs.grid) LazyVerticalGrid(GridCells.Fixed(2), verticalArrangement = Arrangement.spacedBy(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(bottom = 90.dp)) {
-                                items(visible, key = { it.id }) { n -> NoteCard(n, prefs.dark) { edit(n) } }
-                            } else LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(bottom = 90.dp)) {
-                                items(visible, key = { it.id }) { n -> NoteRow(n) { edit(n) } }
+                            if(prefs.grid) LazyVerticalGrid(GridCells.Fixed(2), modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(bottom = 90.dp)) {
+                                items(visible, key = { it.id }) { n ->
+                                    Column {
+                                        if(selecting) Checkbox(n.id in selectionIds, { checked -> selectionIds = if(checked) selectionIds + n.id else selectionIds - n.id }, enabled = !busy)
+                                        NoteCard(n, prefs.dark, vault.categories.firstOrNull { it.id == n.categoryId }?.name.orEmpty()) { if(selecting) { selectionIds = if(n.id in selectionIds) selectionIds - n.id else selectionIds + n.id } else edit(n) }
+                                    }
+                                }
+                            } else LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(bottom = 90.dp)) {
+                                items(visible, key = { it.id }) { n ->
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        if(selecting) Checkbox(n.id in selectionIds, { checked -> selectionIds = if(checked) selectionIds + n.id else selectionIds - n.id }, enabled = !busy)
+                                        Box(Modifier.weight(1f)) { NoteRow(n, vault.categories.firstOrNull { it.id == n.categoryId }?.name.orEmpty()) { if(selecting) { selectionIds = if(n.id in selectionIds) selectionIds - n.id else selectionIds + n.id } else edit(n) } }
+                                    }
+                                }
                             }
                         }
                         "editor" -> draft?.let { n ->
@@ -406,9 +468,9 @@ private fun family(key: String) = when(key) { "serif" -> FontFamily.Serif; "mono
                         "backup" -> Column(Modifier.padding(padding).padding(20.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                             Card { Column(Modifier.padding(20.dp)) {
                                 Text("完整加密备份", style = MaterialTheme.typography.titleLarge)
-                                Text("包含所有分类、账号、图片与样式，包括未解锁的私密分类。恢复使用当前主密码；私密分类仍需独立密码。", Modifier.padding(vertical = 12.dp))
+                                Text("包含所有分类、账号、图片与样式，包括未解锁的私密分类。备份单独设置密码；恢复使用备份密码，私密仍需独立密码。", Modifier.padding(vertical = 12.dp))
                                 Text("上次手动备份：$backupTime", style = MaterialTheme.typography.bodySmall)
-                                Button(onClick = { val s = session!!; work({ s.backup() }) { output(it, "随心记事本-${System.currentTimeMillis()}.mxbak") } }, enabled = !busy) { Text("立即备份") }
+                                Button(onClick = { password = ""; confirmation = ""; dialog = "backupPassword" }, enabled = !busy) { Text("立即备份") }
                                 TextButton(onClick = { activity.allowPicker(); openFile.launch(arrayOf("*/*")) }, enabled = !busy) { Text("从备份恢复") }
                             } }
                             Card { Column(Modifier.padding(20.dp)) {
@@ -424,28 +486,48 @@ private fun family(key: String) = when(key) { "serif" -> FontFamily.Serif; "mono
                             Text(if(prefs.defaultDownloads) "导出与备份默认保存到 Download/Notes，失败时会明确提示。Android 8/9 首次需要存储授权。" else "每次导出或备份时选择保存位置。", style = MaterialTheme.typography.bodySmall)
                             Text("支持手动备份。建议将重要备份再复制到手机之外，并定期演练恢复。", style = MaterialTheme.typography.bodySmall)
                         }
+                        "about" -> Column(Modifier.padding(padding).padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                            Text("随心记事本", style = MaterialTheme.typography.headlineMedium)
+                            Text("版本 ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
+                            Text("作者 andy")
+                            Text("GitHub 仓库：andyzf5520/suixinnotes")
+                            OutlinedButton(onClick = { activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/andyzf5520/suixinnotes"))) }) { Text("打开 GitHub 仓库") }
+                        }
                         else -> Column(Modifier.padding(padding).padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                             Text("本地保险库", style = MaterialTheme.typography.headlineSmall)
                             Text("内容默认加密 · 不联网 · 截图保护", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            listOf("分类管理" to "categories", "个性化" to "settings", "备份与导出" to "backup").forEach { (label,target) ->
+                            listOf("分类管理" to "categories", "个性化" to "settings", "备份与导出" to "backup", "关于" to "about").forEach { (label,target) ->
                                 OutlinedButton(onClick = { page = target }, modifier = Modifier.fillMaxWidth()) { Text(label, modifier = Modifier.padding(8.dp)) }
                             }
-                            OutlinedButton(onClick = { password = ""; confirmation = ""; dialog = "master" }, modifier = Modifier.fillMaxWidth()) { Text("修改主密码") }
-                            Text("随心记事本 ${BuildConfig.VERSION_NAME} · 作者 andy\n默认导出/备份位置：Download/Notes", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 22.dp))
+                            OutlinedButton(onClick = { password = ""; confirmation = ""; categoryPassword = ""; dialog = "box" }, modifier = Modifier.fillMaxWidth()) { Text(if(vault.categories.any { it.id == Session.BOX_ID }) "修改私密密码" else "设置私密密码") }
+                            Text("默认导出/备份位置：Download/Notes", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 22.dp))
                         }
                     }
                 }
             }
+            }
             if(dialog.isNotEmpty()) AlertDialog(onDismissRequest = { if(!busy) clearDialogs() }, title = { Text(when(dialog) {
-                "new" -> "记下一点什么"; "category" -> if(categoryTarget == null) "新建分类" else "编辑分类"; "unlock" -> "解锁 ${categoryTarget?.name}";
-                "restore" -> "恢复加密备份"; "export" -> "确认明文导出"; "delete" -> "删除记录？"; "master" -> "修改主密码"; else -> "切换本地版本？"
+                "move" -> "移入分类"; "new" -> "记下一点什么"; "category" -> if(categoryTarget == null) "新建分类" else "编辑分类"; "unlock" -> "解锁 ${categoryTarget?.name}";
+                "restore" -> "恢复加密备份"; "export" -> "确认明文导出"; "delete" -> "删除记录？"; "box" -> if(vault.categories.any { it.id == Session.BOX_ID }) "修改私密密码" else "首次设置私密密码"; "backupPassword" -> "设置备份密码"; else -> "切换本地版本？"
             }) }, text = {
                 Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     when(dialog) {
+                        "move" -> {
+                            Text("已选择 ${selectionIds.size} 条记录")
+                            vault.categories.sortedByDescending { it.pinned }.forEach { target ->
+                                OutlinedButton(onClick = {
+                                    val current = session!!; val ids = selectionIds
+                                    if(target.sealed != null) { pendingMove = true; categoryTarget = target; categoryPassword = ""; dialog = "unlock" }
+                                    else work({ current.moveNotes(ids, target.id) }) { refresh(current); selectionIds = emptySet(); selecting = false; clearDialogs(); message = "已移入 ${target.name}" }
+                                }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text((if(target.sealed != null) "▣ " else "▤ ") + target.name) }
+                            }
+                            if(vault.categories.none { it.id == Session.BOX_ID }) OutlinedButton(onClick = { pendingMove = true; password = ""; confirmation = ""; categoryPassword = ""; dialog = "box" }) { Text("▣ 私密（首次设置密码）") }
+                        }
                         "new" -> {
                             Text("保存到：${selected?.let { id -> vault.categories.find { it.id == id }?.name } ?: "随手记"}")
                             listOf("note" to "空白笔记", "account" to "账号卡片", "todo" to "待办清单").forEach { (kind,label) ->
                                 OutlinedButton(onClick = {
+                                    if(selected == Session.BOX_ID && vault.categories.none { it.id == Session.BOX_ID }) { dialog = "box"; return@OutlinedButton }
                                     val c = selected?.let { id -> vault.categories.find { it.id == id } } ?: vault.categories.first { it.sealed == null }
                                     if(session?.isOpen(c.id) != true) { categoryTarget = c; dialog = "unlock"; categoryPassword = "" }
                                     else { clearDialogs(); edit(Note(categoryId = c.id, kind = kind, fontSize = prefs.fontSize, body = if(kind == "todo") "☐ " else "")) }
@@ -462,10 +544,15 @@ private fun family(key: String) = when(key) { "serif" -> FontFamily.Serif; "mono
                             } else Text("首版暂不支持修改已有分类的加密方式。", style = MaterialTheme.typography.bodySmall)
                         }
                         "unlock" -> { SecretField(categoryPassword, { categoryPassword = it }, "独立分类密码"); Text("主密码无法解锁此分类。") }
-                        "master" -> { SecretField(password, { password = it }, "新主密码（至少 8 位）"); SecretField(confirmation, { confirmation = it }, "再次输入"); Text("旧备份仍使用备份时的旧主密码。") }
+                        "box" -> {
+                            if(vault.categories.any { it.id == Session.BOX_ID }) SecretField(categoryPassword, { categoryPassword = it }, "原私密密码")
+                            SecretField(password, { password = it }, "私密密码（至少 8 位）"); SecretField(confirmation, { confirmation = it }, "再次输入")
+                            Text("仅私密内容需要密码。忘记密码无法恢复；旧备份仍需备份时的私密密码。")
+                        }
+                        "backupPassword" -> { SecretField(password, { password = it }, "备份密码（至少 8 位）"); SecretField(confirmation, { confirmation = it }, "再次输入"); Text("恢复备份需要此密码，请妥善记住。") }
                         "restore" -> {
                             Text("恢复后会切换至备份内容。当前库保留为一个本地回退版本；连续恢复会更新回退版本。")
-                            SecretField(restorePassword, { restorePassword = it; incomingSummary = null }, "备份时的主密码")
+                            SecretField(restorePassword, { restorePassword = it; incomingSummary = null }, "备份密码")
                             incomingSummary?.let { Text("校验通过：${it.categories.size} 个分类，${it.notes.size} 条普通记录，${it.categories.count { c -> c.sealed != null }} 个独立加密分类（不展示条目数）。") }
                             Text("加密分类仍需要备份时的分类密码。", style = MaterialTheme.typography.bodySmall)
                         }
@@ -474,7 +561,7 @@ private fun family(key: String) = when(key) { "serif" -> FontFamily.Serif; "mono
                             Text("$exportFormat · ${exportNotes.size} 条记录\n${if(exportSecrets) "包含密码，输出为明文" else "账号密码已隐藏"}")
                             val locked = vault.categories.filter { it.sealed != null && session?.isOpen(it.id) == false }
                             if(locked.isNotEmpty()) Text("未包含的锁定分类：${locked.joinToString { it.name }}", color = MaterialTheme.colorScheme.error)
-                            if(exportSecrets) SecretField(password, { password = it }, "再次输入主密码以确认")
+                            if(exportNotes.any { it.categoryId == Session.BOX_ID }) SecretField(password, { password = it }, "再次输入私密密码")
                         }
                         "delete" -> Text("删除后首版无法撤销，请先备份重要内容。")
                         else -> Text("将切换至上次恢复前的加密文件；需要该版本对应的主密码。")
@@ -482,7 +569,7 @@ private fun family(key: String) = when(key) { "serif" -> FontFamily.Serif; "mono
                     if(message.isNotEmpty()) Text(message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                 }
             }, confirmButton = {
-                if(dialog != "new") TextButton(enabled = !busy, onClick = {
+                if(dialog !in listOf("new", "move")) TextButton(enabled = !busy, onClick = {
                     when(dialog) {
                         "category" -> {
                             if(categoryPrivate && categoryTarget == null && categoryPassword.length < 8) message = "分类密码至少 8 位"
@@ -493,23 +580,35 @@ private fun family(key: String) = when(key) { "serif" -> FontFamily.Serif; "mono
                             }
                         }
                         "unlock" -> { val s = session!!; val id = categoryTarget!!.id; val chars = categoryPassword.toCharArray()
-                            work({ try { s.unlockCategory(id, chars) } finally { chars.fill('\u0000') } }) { refresh(s); clearDialogs(); page = "notes"; selected = id }
+                            val moving = pendingMove; val ids = selectionIds
+                            work({ try { s.unlockCategory(id, chars); if(moving) { s.moveNotes(ids, id); s.lockCategory(id) } } finally { chars.fill('\u0000') } }) {
+                                refresh(s); clearDialogs(); page = "notes"; if(moving) { selectionIds = emptySet(); selecting = false; message = "已移入目标分类" } else selected = id
+                            }
                         }
-                        "master" -> {
+                        "box" -> {
                             if(password.length < 8 || password != confirmation) message = "密码至少 8 位，且两次输入一致"
-                            else { val s = session!!; val chars = password.toCharArray(); work({ try { s.changeMaster(chars) } finally { chars.fill('\u0000') } }) { clearDialogs(); message = "主密码已修改，请重新备份" } }
+                            else {
+                                val s = session!!; val next = password.toCharArray(); val old = categoryPassword.takeIf { it.isNotEmpty() }?.toCharArray(); val moving = pendingMove; val ids = selectionIds
+                                work({ try { s.setBoxPassword(old, next); if(moving) { s.unlockCategory(Session.BOX_ID, next); s.moveToBox(ids); s.lockCategory(Session.BOX_ID) } } finally { next.fill('\u0000'); old?.fill('\u0000') } }) {
+                                    refresh(s); clearDialogs(); if(moving) { selecting = false; selectionIds = emptySet() }; message = if(moving) "已移入私密" else "私密密码已设置"
+                                }
+                            }
+                        }
+                        "backupPassword" -> {
+                            if(password.length < 8 || password != confirmation) message = "密码至少 8 位，且两次输入一致"
+                            else { val s = session!!; val chars = password.toCharArray(); work({ try { s.portableBackup(chars) } finally { chars.fill('\u0000') } }) { bytes -> clearDialogs(); output(bytes, "随心记事本-${System.currentTimeMillis()}.mxbak") } }
                         }
                         "restore" -> {
                             val bytes = incoming ?: return@TextButton; val chars = restorePassword.toCharArray()
                             if(incomingSummary == null) work({ try { val plain = Crypto.decrypt(bytes, chars); try { Vault.read(plain) } finally { plain.fill(0) } } finally { chars.fill('\u0000') } }) { incomingSummary = it }
-                            else work({ try { store.install(bytes, chars) } finally { chars.fill('\u0000') } }) { s ->
-                                session?.close(); session = s; refresh(s); draft = null; savedDraft = null; history = null; returnAfterSave = false; selected = null; query = ""; clearDialogs(); page = "notes"; message = "已恢复；原库可在锁屏页切换回来"
+                            else work({ try { store.install(bytes, chars).also { deviceAccess.save(chars) } } finally { chars.fill('\u0000') } }) { s ->
+                                session?.close(); session = s; refresh(s); draft = null; savedDraft = null; history = null; returnAfterSave = false; selected = null; query = ""; clearDialogs(); page = "notes"; message = "已恢复，私密仍需备份时的私密密码"
                             }
                         }
                         "export" -> {
                             val s = session!!; val list = notes.filter { selected == null || it.categoryId == selected }; val secret = exportSecrets; val fmt = exportFormat; val chars = password.toCharArray()
                             work({ try {
-                                if(secret) s.validateMaster(chars)
+                                if(list.any { it.categoryId == Session.BOX_ID }) s.unlockCategory(Session.BOX_ID, chars)
                                 when(fmt) { "CSV" -> Exports.csv(list, secret); "TXT" -> Exports.text(list, secret); else -> Exports.html(list, secret) }.toByteArray(Charsets.UTF_8)
                             } finally { chars.fill('\u0000') } }) { bytes -> clearDialogs(); output(bytes, "随心记事本导出-${System.currentTimeMillis()}.${fmt.lowercase()}") }
                         }
@@ -537,16 +636,30 @@ private fun family(key: String) = when(key) { "serif" -> FontFamily.Serif; "mono
         Button(onClick = { change(index) }, colors = ButtonDefaults.buttonColors(containerColor = color, contentColor = Color(0xFF30303C)), contentPadding = PaddingValues(0.dp), modifier = Modifier.weight(1f).height(48.dp)) { Text(if(index == value) "✓" else "${index+1}") }
     } }
 }
-@Composable private fun NoteCard(note: Note, dark: Boolean, onClick: () -> Unit) {
+@Composable private fun NoteCard(note: Note, dark: Boolean, categoryName: String = "", onClick: () -> Unit) {
     Card(onClick, shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = if(dark) Color(0xFF30303A) else papers[note.paper])) {
+        Column(Modifier.padding(16.dp)) {
         Text(note.displayTitle(), fontSize = 18.sp, fontWeight = FontWeight.Medium, maxLines = 2, overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.fillMaxWidth().heightIn(min = 96.dp).padding(16.dp))
+            modifier = Modifier.fillMaxWidth().heightIn(min = 54.dp))
+        NoteMetadata(note, categoryName)
+        }
     }
 }
-@Composable private fun NoteRow(note: Note, onClick: () -> Unit) {
+@Composable private fun NoteRow(note: Note, categoryName: String = "", onClick: () -> Unit) {
     Surface(onClick = onClick, shape = RoundedCornerShape(10.dp)) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 13.dp)) {
         Text(note.displayTitle(), maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 17.sp,
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 17.dp))
+            modifier = Modifier.fillMaxWidth())
+        NoteMetadata(note, categoryName)
+        }
+    }
+}
+@Composable private fun NoteMetadata(note: Note, categoryName: String) {
+    Row(Modifier.padding(top = 7.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(SimpleDateFormat("yyyy-MM-dd", Locale.CHINA).format(Date(note.updated)), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Icon(Icons.Outlined.Folder, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(categoryName, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if(note.favorite) Icon(Icons.Outlined.PushPin, "已置顶便签", Modifier.size(14.dp))
     }
 }
 @Composable private fun CompactMenu(label: String, choices: List<Pair<String,String>>, selected: String, change: (String) -> Unit) {
@@ -583,7 +696,7 @@ private fun family(key: String) = when(key) { "serif" -> FontFamily.Serif; "mono
         BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
             val minimumBody = (maxHeight - 90.dp).coerceAtLeast(160.dp)
             Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(top = 12.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                BasicTextField(note.title, { if(it.length <= 300) change(note.copy(title = it)) }, modifier = Modifier.fillMaxWidth(), singleLine = true,
+                BasicTextField(note.title, { if(it.length <= 300) change(note.copy(title = it)) }, modifier = Modifier.fillMaxWidth().testTag("noteTitle"), singleLine = true,
                     textStyle = MaterialTheme.typography.titleLarge.copy(color = MaterialTheme.colorScheme.onSurface),
                     decorationBox = { inner -> Box { if(note.title.isEmpty()) Text("标题（留空取正文第一行）", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.titleMedium); inner() } })
                 if(note.kind == "account") {

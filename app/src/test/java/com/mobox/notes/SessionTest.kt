@@ -66,4 +66,63 @@ class SessionTest {
         val private = Note(categoryId = c.id, title = "私密"); s.saveNote(private); s.deleteNote(private); s.lockCategory(c.id); s.unlockCategory(c.id, p)
         assertEquals(listOf(public), s.visibleNotes())
     }
+
+    @Test fun batchMoveCombinesOrdinaryAndEncryptedSourcesWithoutLeakingContent() {
+        val (store,s) = setup(); val sourcePass = "Source-Private2026".toCharArray(); val boxPass = "Box-Private2026".toCharArray()
+        val first = Note(categoryId = s.vault.categories.first().id, title = "ordinary-hidden", body = "body", images = listOf("AQID"), bold = true)
+        val second = Note(categoryId = s.vault.categories[1].id, kind = "account", title = "account-hidden", username = "user", password = "MoveSecret")
+        s.saveNote(first); s.saveNote(second)
+        s.category("源私密", 2, sourcePass); val source = s.vault.categories.last(); s.unlockCategory(source.id, sourcePass)
+        val third = Note(categoryId = source.id, title = "source-hidden"); s.saveNote(third)
+        s.setBoxPassword(null, boxPass); s.unlockCategory(Session.BOX_ID, boxPass)
+        s.moveToBox(setOf(first.id,second.id,third.id)); s.lockCategory(Session.BOX_ID)
+        assertTrue(s.visibleNotes().isEmpty())
+        val outer = Vault.read(Crypto.decrypt(store.read(), master)); assertTrue(outer.notes.isEmpty())
+        val text = outer.bytes().toString(Charsets.UTF_8); assertFalse(text.contains("MoveSecret")); assertFalse(text.contains("ordinary-hidden"))
+        s.unlockCategory(Session.BOX_ID, boxPass); val moved = s.visibleNotes()
+        assertEquals(3,moved.size); assertTrue(moved.all { it.categoryId == Session.BOX_ID })
+        assertEquals(first.images,moved.first { it.id == first.id }.images); assertTrue(moved.first { it.id == first.id }.bold)
+        s.lockCategory(source.id); s.unlockCategory(source.id, sourcePass); assertEquals(3,s.visibleNotes().size)
+    }
+    @Test fun failedMovePreservesBothDiskAndVisibleOriginalNotes() {
+        val (store,s) = setup(); val p = "Box-Private2026".toCharArray()
+        val n = Note(categoryId = s.vault.categories.first().id, body = "keep me"); s.saveNote(n)
+        s.setBoxPassword(null,p); s.unlockCategory(Session.BOX_ID,p)
+        val original = store.read(); val vault = s.vault; val visible = s.visibleNotes(); store.fail = true
+        assertThrows(IllegalStateException::class.java) { s.moveToBox(setOf(n.id)) }
+        assertArrayEquals(original,store.read()); assertEquals(vault,s.vault); assertEquals(visible,s.visibleNotes())
+    }
+    @Test fun moveBackToOrdinaryAndBetweenFoldersPreservesRecordIdentity() {
+        val (_,s) = setup(); val p = "Box-Private2026".toCharArray(); val first = s.vault.categories.first().id; val second = s.vault.categories[1].id
+        val n = Note(categoryId = first, title = "move back", password = "secret", images = listOf("AQID")); s.saveNote(n)
+        s.moveNotes(setOf(n.id),second); assertEquals(second,s.visibleNotes().single().categoryId)
+        s.setBoxPassword(null,p)
+        assertThrows(IllegalArgumentException::class.java) { s.moveToBox(setOf(n.id)) }
+        s.unlockCategory(Session.BOX_ID,p); s.moveToBox(setOf(n.id)); s.moveNotes(setOf(n.id),first)
+        assertEquals(n.id,s.visibleNotes().single().id); assertEquals(first,s.vault.notes.single().categoryId); assertEquals(n.images,s.vault.notes.single().images)
+        s.lockCategory(Session.BOX_ID); s.unlockCategory(Session.BOX_ID,p); assertEquals(1,s.visibleNotes().size)
+    }
+    @Test fun boxPasswordChangeRejectsWrongOldAndKeepsOldBackupUsable() {
+        val (_,s) = setup(); val old = "Old-Box2026".toCharArray(); val next = "New-Box2026".toCharArray(); val backupPass = "Backup-Only2026".toCharArray()
+        s.setBoxPassword(null,old); s.unlockCategory(Session.BOX_ID,old)
+        val n = Note(categoryId = Session.BOX_ID, body = "private saved"); s.saveNote(n)
+        val backup = s.portableBackup(backupPass); val vault = s.vault
+        assertThrows(javax.crypto.AEADBadTagException::class.java) { s.setBoxPassword("wrong".toCharArray(),next) }; assertEquals(vault,s.vault)
+        s.setBoxPassword(old,next); assertFalse(s.isOpen(Session.BOX_ID))
+        assertThrows(javax.crypto.AEADBadTagException::class.java) { s.unlockCategory(Session.BOX_ID,old) }; s.unlockCategory(Session.BOX_ID,next); assertEquals(n,s.visibleNotes().single())
+        val restored = Session(MemoryStore(),Vault.read(Crypto.decrypt(backup,backupPass)),master.copyOf()); restored.unlockCategory(Session.BOX_ID,old); assertEquals(n,restored.visibleNotes().single())
+    }
+    @Test fun portableBackupUsesDedicatedPasswordAndExcludesOpenedPlaintextDomains() {
+        val (_,s) = setup(); val p = "Box-Private2026".toCharArray(); val backupPass = "Backup-Only2026".toCharArray()
+        s.setBoxPassword(null,p); s.unlockCategory(Session.BOX_ID,p); s.saveNote(Note(categoryId = Session.BOX_ID, title = "InvisibleTitle"))
+        val bytes = s.portableBackup(backupPass)
+        assertThrows(javax.crypto.AEADBadTagException::class.java) { Crypto.decrypt(bytes,master) }
+        val restored = Vault.read(Crypto.decrypt(bytes,backupPass)); assertTrue(restored.notes.isEmpty()); assertFalse(restored.bytes().toString(Charsets.UTF_8).contains("InvisibleTitle"))
+        assertThrows(IllegalArgumentException::class.java) { s.portableBackup("short".toCharArray()) }
+    }
+    @Test fun categoryPinAndDefaultRowLayoutSurviveSerialization() {
+        val (store,s) = setup(); assertFalse(s.vault.prefs.grid); val id = s.vault.categories[1].id
+        s.pinCategory(id,true); val restored = Vault.read(Crypto.decrypt(store.read(),master)); assertTrue(restored.categories.first { it.id == id }.pinned)
+        s.pinCategory(id,false); assertFalse(s.vault.categories.first { it.id == id }.pinned)
+    }
 }

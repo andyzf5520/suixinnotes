@@ -9,6 +9,13 @@ struct SettingsView: View {
     @State private var secrets = false
     @State private var confirm = false
     @State private var master = ""
+    @State private var boxPrompt = false
+    @State private var oldBoxPassword = ""
+    @State private var boxPassword = ""
+    @State private var boxConfirmation = ""
+    @State private var backupPrompt = false
+    @State private var backupPassword = ""
+    @State private var backupConfirmation = ""
     @State private var output: TransferFile?
     @State private var exporting = false
     @State private var filename = ""
@@ -18,20 +25,29 @@ struct SettingsView: View {
     @State private var restorePassword = ""
     var body: some View {
         Form {
-            Section("关于") { Text("随心记事本"); Text("版本 1.0.0 · 作者 andy"); Text("iOS 原生版 · 本地加密 · 无需注册").font(.caption) }
+            Section { NavigationLink("关于") {
+                Form {
+                    Section { Text("随心记事本"); Text("版本 \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0")"); Text("作者 andy") }
+                    Section("GitHub 仓库") { Text("andyzf5520/suixinnotes"); Link("打开 GitHub 仓库", destination: URL(string: "https://github.com/andyzf5520/suixinnotes")!) }
+                }.navigationTitle("关于")
+            } }
             Section("个性化") {
                 Toggle("深色模式", isOn: Binding(get: { store.vault.prefs.dark }, set: { value in var p = store.vault.prefs; p.dark = value; store.run { try await store.setPreferences(p) } }))
                 Toggle("双列卡片", isOn: Binding(get: { store.vault.prefs.grid }, set: { value in var p = store.vault.prefs; p.grid = value; store.run { try await store.setPreferences(p) } }))
+            }
+            Section("私密") {
+                Button(store.vault.categories.contains(where: { $0.id == NoteStore.boxID }) ? "修改私密密码" : "首次设置私密密码") { oldBoxPassword = ""; boxPassword = ""; boxConfirmation = ""; boxPrompt = true }
+                Text("普通笔记直接进入，只有私密内容需要独立密码。密码遗忘无法找回。").font(.caption)
             }
             Section("分类") {
                 ForEach(store.vault.categories) { c in HStack { Text(c.name); Spacer(); if c.sealed != nil { Button(store.isOpen(c) ? "锁定" : "已锁定") { store.lockCategory(c) }.disabled(!store.isOpen(c)) } } }
                 TextField("新分类名称", text: $categoryName)
                 SecureField("独立密码（留空为普通分类）", text: $categoryPassword)
                 Button("新建分类") { let n = categoryName, p = categoryPassword; store.run { try await store.addCategory(n, password: p); categoryName = ""; categoryPassword = "" } }
-                Text("分类密码至少 8 位，主密码不能替代。遗忘无找回。 ").font(.caption)
+                Text("分类密码至少 8 位，各分类独立加密，遗忘无找回。 ").font(.caption)
             }
             Section("加密备份") {
-                Button("导出完整加密备份") { do { output = TransferFile(data: try store.backup()); filename = "随心记事本-\(Int(Date().timeIntervalSince1970)).mxbak"; exporting = true } catch { store.error = error.localizedDescription } }
+                Button("导出完整加密备份") { backupPassword = ""; backupConfirmation = ""; backupPrompt = true }
                 Button("从备份恢复") { importing = true }
                 Text("包含未解锁分类；恢复仍需各分类密码。").font(.caption)
             }
@@ -52,16 +68,37 @@ struct SettingsView: View {
                 incoming = try Data(contentsOf: url); restorePassword = ""; restorePrompt = true
             } catch { store.error = error.localizedDescription }
         }
+        .alert("设置私密密码", isPresented: $boxPrompt) {
+            if store.vault.categories.contains(where: { $0.id == NoteStore.boxID }) { SecureField("原私密密码", text: $oldBoxPassword) }
+            SecureField("私密密码（至少 8 位）", text: $boxPassword)
+            SecureField("再次输入", text: $boxConfirmation)
+            Button("保存") {
+                let old = oldBoxPassword, next = boxPassword, match = boxConfirmation; oldBoxPassword = ""; boxPassword = ""; boxConfirmation = ""
+                guard next.count >= 8, next == match else { store.error = "密码至少 8 位且两次输入一致"; return }
+                store.run { try await store.setBoxPassword(old: old, next: next) }
+            }
+            Button("取消", role: .cancel) { oldBoxPassword = ""; boxPassword = ""; boxConfirmation = "" }
+        } message: { Text("旧备份中的私密仍使用备份时的私密密码。") }
+        .alert("设置备份密码", isPresented: $backupPrompt) {
+            SecureField("备份密码（至少 8 位）", text: $backupPassword)
+            SecureField("再次输入", text: $backupConfirmation)
+            Button("备份") {
+                let p = backupPassword, match = backupConfirmation; backupPassword = ""; backupConfirmation = ""
+                guard p.count >= 8, p == match else { store.error = "密码至少 8 位且两次输入一致"; return }
+                store.run { output = TransferFile(data: try await store.portableBackup(password: p)); filename = "随心记事本-\(Int(Date().timeIntervalSince1970)).mxbak"; exporting = true }
+            }
+            Button("取消", role: .cancel) { backupPassword = ""; backupConfirmation = "" }
+        } message: { Text("换设备恢复使用此备份密码；私密内容仍需自己的密码。") }
         .alert("恢复并切换保险库", isPresented: $restorePrompt) {
-            SecureField("备份主密码", text: $restorePassword)
+            SecureField("备份密码", text: $restorePassword)
             Button("校验并恢复") { let data = incoming, p = restorePassword; incoming = nil; restorePassword = ""; if let data { store.run { try await store.restore(data, password: p) } } }
             Button("取消", role: .cancel) { incoming = nil; restorePassword = "" }
         } message: { Text("原库保留为一个本地回退文件；连续恢复会更新它。") }
         .alert("导出文件为明文", isPresented: $confirm) {
-            if secrets { SecureField("主密码", text: $master) }
+            if store.notes.contains(where: { $0.categoryId == NoteStore.boxID }) { SecureField("私密密码", text: $master) }
             Button("导出") {
                 let password = master, include = secrets, f = format, notes = store.notes; master = ""
-                store.run { if include { try await store.confirmPassword(password) }; output = TransferFile(data: Exports.data(notes, format: f, passwords: include)); filename = "随心记事本-\(Int(Date().timeIntervalSince1970)).\(f.lowercased())"; exporting = true }
+                store.run { if notes.contains(where: { $0.categoryId == NoteStore.boxID }), let c = store.vault.categories.first(where: { $0.id == NoteStore.boxID }) { try await store.unlockCategory(c, password: password) }; output = TransferFile(data: Exports.data(notes, format: f, passwords: include)); filename = "随心记事本-\(Int(Date().timeIntervalSince1970)).\(f.lowercased())"; exporting = true }
             }
             Button("取消", role: .cancel) { master = "" }
         } message: { Text("锁定分类不会导出；密码默认排除。请保护好导出文件。") }

@@ -11,9 +11,12 @@ import Combine
     private var passwords: [String: String] = [:]
     private var epoch = 0
     var beforeLock: (() async -> Void)?
+    static let boxID = "secure-box"
     private let file: URL
-    init() {
-        let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+    private let useDeviceAccess: Bool
+    init(directory: URL? = nil) {
+        useDeviceAccess = directory == nil
+        let root = directory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         file = root.appendingPathComponent("vault.mobx")
         try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         var excluded = root; var values = URLResourceValues(); values.isExcludedFromBackup = true
@@ -29,6 +32,12 @@ import Combine
             if generation == epoch { busy = false }
         }
     }
+    func autoOpen() async throws {
+        guard !unlocked else { return }
+        if let password = try DeviceAccess.load() { if exists { try await open(password) } else { try await create(password) } }
+        else if !exists { try await create(DeviceAccess.generate()) }
+        else { error = "旧版数据请首次输入原密码，之后自动进入普通笔记。" }
+    }
     func open(_ password: String) async throws {
         let url = file, generation = epoch
         let next = try await Task.detached { () throws -> Vault in
@@ -36,10 +45,12 @@ import Combine
             let v = try JSONDecoder().decode(Vault.self, from: VaultCrypto.decrypt(data, password: password)); try v.validate(); return v
         }.value
         guard generation == epoch else { throw VaultError.locked }
+        if useDeviceAccess { try DeviceAccess.save(password) }
         master = password; vault = next; unlocked = true
     }
     func create(_ password: String) async throws {
         guard !exists, password.count >= 8 else { throw VaultError.invalid }
+        if useDeviceAccess { try DeviceAccess.save(password) }
         master = password
         do { try await persist(Vault()); unlocked = true } catch { master = ""; throw error }
     }
@@ -77,6 +88,7 @@ import Combine
             for n in d.notes { try validateNote(n) }; return d
         }.value
         guard generation == epoch else { throw VaultError.locked }
+        guard domain.notes.allSatisfy({ n in !notes.contains(where: { $0.id == n.id && $0.categoryId != c.id }) }) else { throw VaultError.invalid }
         opened[c.id] = domain; passwords[c.id] = password
     }
     func lockCategory(_ c: Category) { opened[c.id] = nil; passwords[c.id] = nil; objectWillChange.send() }
@@ -106,6 +118,58 @@ import Combine
             try await persist(next); opened[c.id] = d
         }
     }
+    func setBoxPassword(old: String, next password: String) async throws {
+        guard password.count >= 8 else { throw VaultError.invalid }
+        var next = vault
+        if let i = next.categories.firstIndex(where: { $0.id == Self.boxID }) {
+            guard let sealed = next.categories[i].sealed, let data = Data(base64Encoded: sealed) else { throw VaultError.invalid }
+            let domain = try await Task.detached { try JSONDecoder().decode(Domain.self, from: VaultCrypto.decrypt(data, password: old)) }.value
+            guard domain.categoryId == Self.boxID, domain.notes.allSatisfy({ $0.categoryId == Self.boxID }) else { throw VaultError.invalid }
+            let encoded = try await Task.detached { try VaultCrypto.encrypt(JSONEncoder().encode(domain), password: password).base64EncodedString() }.value
+            next.categories[i].sealed = encoded
+        } else {
+            let domain = Domain(categoryId: Self.boxID, notes: [])
+            let encoded = try await Task.detached { try VaultCrypto.encrypt(JSONEncoder().encode(domain), password: password).base64EncodedString() }.value
+            var c = Category(name: "私密"); c.id = Self.boxID; c.sealed = encoded; next.categories.append(c)
+        }
+        try await persist(next); opened[Self.boxID] = nil; passwords[Self.boxID] = nil
+    }
+    func pinCategory(_ id: String, pinned: Bool) async throws {
+        var next = vault; guard let i = next.categories.firstIndex(where: { $0.id == id }) else { throw VaultError.invalid }
+        next.categories[i].pinned = pinned; try await persist(next)
+    }
+    func moveToBox(_ ids: Set<String>) async throws { try await moveNotes(ids, to: Self.boxID) }
+    func moveNotes(_ ids: Set<String>, to targetID: String) async throws {
+        guard !ids.isEmpty, let target = vault.categories.first(where: { $0.id == targetID }), isOpen(target) else { throw VaultError.locked }
+        let chosen = notes.filter { ids.contains($0.id) }
+        guard chosen.count == ids.count else { throw VaultError.invalid }
+        let selected = chosen.filter { $0.categoryId != targetID }; guard !selected.isEmpty else { throw VaultError.invalid }
+        let movedIDs = Set(selected.map(\.id))
+        var next = vault, changed: [String: Domain] = [:]
+        for id in Set(selected.map(\.categoryId)) {
+            guard let i = next.categories.firstIndex(where: { $0.id == id }) else { throw VaultError.invalid }
+            if next.categories[i].sealed != nil {
+                guard var domain = opened[id], let password = passwords[id] else { throw VaultError.locked }
+                domain.notes.removeAll { movedIDs.contains($0.id) }; let snapshot = domain
+                next.categories[i].sealed = try await Task.detached { try VaultCrypto.encrypt(JSONEncoder().encode(snapshot), password: password).base64EncodedString() }.value
+                changed[id] = domain
+            }
+        }
+        let moved = selected.map { n in var result = n; result.categoryId = targetID; result.updated = Int64(Date().timeIntervalSince1970 * 1000); return result }
+        next.notes.removeAll { movedIDs.contains($0.id) }
+        if target.sealed == nil { next.notes += moved }
+        else {
+            guard var destination = opened[targetID], let password = passwords[targetID], let i = next.categories.firstIndex(where: { $0.id == targetID }) else { throw VaultError.locked }
+            destination.notes += moved; let snapshot = destination
+            next.categories[i].sealed = try await Task.detached { try VaultCrypto.encrypt(JSONEncoder().encode(snapshot), password: password).base64EncodedString() }.value
+            changed[targetID] = destination
+        }
+        try await persist(next); changed.forEach { opened[$0.key] = $0.value }
+    }
+    func portableBackup(password: String) async throws -> Data {
+        guard unlocked, password.count >= 8 else { throw VaultError.invalid }; let snapshot = vault
+        return try await Task.detached { try VaultCrypto.encrypt(JSONEncoder().encode(snapshot), password: password) }.value
+    }
     func setPreferences(_ p: Preferences) async throws { var next = vault; next.prefs = p; try await persist(next) }
     func backup() throws -> Data { guard unlocked else { throw VaultError.locked }; return try Data(contentsOf: file) }
     func confirmPassword(_ password: String) async throws {
@@ -123,6 +187,7 @@ import Combine
             try data.write(to: url, options: [.atomic, .completeFileProtection])
         }.value
         guard epoch == generation else { throw VaultError.locked }
+        if useDeviceAccess { try DeviceAccess.save(password) }
         opened.removeAll(); passwords.removeAll(); master = password; vault = next; unlocked = true
     }
 }

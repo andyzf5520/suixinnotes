@@ -25,14 +25,26 @@ struct Note: Codable, Identifiable, Equatable {
     }
 }
 struct Category: Codable, Identifiable, Equatable {
-    var id = UUID().uuidString
+    var id: String
     var name: String
-    var color = 0
+    var color: Int
     var sealed: String?
+    var pinned: Bool
+    init(id: String = UUID().uuidString, name: String, color: Int = 0, sealed: String? = nil, pinned: Bool = false) {
+        self.id = id; self.name = name; self.color = color; self.sealed = sealed; self.pinned = pinned
+    }
+    enum CodingKeys: CodingKey { case id, name, color, sealed, pinned }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id); name = try c.decode(String.self, forKey: .name)
+        color = try c.decodeIfPresent(Int.self, forKey: .color) ?? 0
+        sealed = try c.decodeIfPresent(String.self, forKey: .sealed)
+        pinned = try c.decodeIfPresent(Bool.self, forKey: .pinned) ?? false
+    }
 }
 struct Preferences: Codable {
     var dark = false
-    var grid = true
+    var grid = false
     var accent = 0
     var fontSize = 17
     var sort = "updated_desc"
@@ -42,7 +54,7 @@ struct Preferences: Codable {
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         dark = try c.decodeIfPresent(Bool.self, forKey: .dark) ?? false
-        grid = try c.decodeIfPresent(Bool.self, forKey: .grid) ?? true
+        grid = try c.decodeIfPresent(Bool.self, forKey: .grid) ?? false
         accent = try c.decodeIfPresent(Int.self, forKey: .accent) ?? 0
         fontSize = try c.decodeIfPresent(Int.self, forKey: .fontSize) ?? 17
         sort = try c.decodeIfPresent(String.self, forKey: .sort) ?? "updated_desc"

@@ -71,6 +71,7 @@ private fun java.io.InputStream.limitedStoreRead(): ByteArray {
     return output.toByteArray()
 }
 class Session(private val store: VaultPersistence, var vault: Vault, private var master: CharArray) {
+    companion object { const val BOX_ID = "secure-box" }
     private data class OpenDomain(val password: CharArray, var notes: List<Note>)
     private val domains = mutableMapOf<String, OpenDomain>()
     private var closed = false
@@ -80,6 +81,64 @@ class Session(private val store: VaultPersistence, var vault: Vault, private var
     private fun persist(next: Vault) { checkOpen(); store.save(next, master); vault = next }
     @Synchronized fun validateMaster(password: CharArray) { checkOpen(); val d = Crypto.decrypt(store.read(), password); d.fill(0) }
     @Synchronized fun backup(): ByteArray { checkOpen(); return store.read() }
+    @Synchronized fun portableBackup(password: CharArray): ByteArray {
+        checkOpen(); require(password.size >= 8) { "备份密码至少 8 位" }
+        val plain = vault.bytes()
+        return try { Crypto.encrypt(plain, password) } finally { plain.fill(0) }
+    }
+    @Synchronized fun setBoxPassword(old: CharArray?, next: CharArray) {
+        checkOpen(); require(next.size >= 8) { "私密密码至少 8 位" }
+        val box = vault.categories.firstOrNull { it.id == BOX_ID }
+        if(box != null) {
+            require(old != null) { "请输入原私密密码" }
+            unlockCategory(BOX_ID, old)
+            val d = domains[BOX_ID]!!
+            val seal = encode(BOX_ID, d.notes, next)
+            persist(vault.copy(categories = vault.categories.map { if(it.id == BOX_ID) it.copy(sealed = seal) else it }))
+            d.password.fill('\u0000'); domains.remove(BOX_ID)
+        } else {
+            val seal = encode(BOX_ID, emptyList(), next)
+            persist(vault.copy(categories = vault.categories + Category(id = BOX_ID, name = "私密", sealed = seal)))
+        }
+    }
+    @Synchronized fun moveToBox(ids: Set<String>) = moveNotes(ids, BOX_ID)
+    @Synchronized fun pinCategory(id: String, pinned: Boolean) {
+        checkOpen(); require(vault.categories.any { it.id == id })
+        persist(vault.copy(categories = vault.categories.map { if(it.id == id) it.copy(pinned = pinned) else it }))
+    }
+    @Synchronized fun moveNotes(ids: Set<String>, targetId: String) {
+        checkOpen(); require(ids.isNotEmpty()) { "请先选择记录" }
+        val target = vault.categories.firstOrNull { it.id == targetId } ?: error("目标分类不存在")
+        require(isOpen(targetId)) { "请先解锁目标分类" }
+        val chosen = visibleNotes().filter { it.id in ids }
+        require(chosen.size == ids.size) { "选择的记录不可用" }
+        val selected = chosen.filter { it.categoryId != targetId }
+        require(selected.isNotEmpty()) { "记录已在目标分类" }
+        val movedIds = selected.map { it.id }.toSet()
+        var cats = vault.categories
+        val changed = mutableMapOf<String,List<Note>>()
+        selected.map { it.categoryId }.distinct().forEach { id ->
+            val c = cats.first { it.id == id }
+            if(c.sealed != null) {
+                val d = domains[id] ?: error("源分类已锁定")
+                val list = d.notes.filterNot { it.id in movedIds }
+                val seal = encode(id, list, d.password)
+                cats = cats.map { if(it.id == id) it.copy(sealed = seal) else it }; changed[id] = list
+            }
+        }
+        val moved = selected.map { it.copy(categoryId = targetId, updated = System.currentTimeMillis()) }
+        var plain = vault.notes.filterNot { it.id in movedIds }
+        var targetList: List<Note>? = null
+        if(target.sealed != null) {
+            val domain = domains[targetId] ?: error("请先解锁目标分类")
+            targetList = domain.notes + moved
+            val seal = encode(targetId, targetList, domain.password)
+            cats = cats.map { if(it.id == targetId) it.copy(sealed = seal) else it }
+        } else plain = plain + moved
+        persist(vault.copy(categories = cats, notes = plain))
+        changed.forEach { (id, n) -> domains[id]?.notes = n }
+        targetList?.let { domains[targetId]?.notes = it }
+    }
     @Synchronized fun updatePrefs(prefs: Preferences) = persist(vault.copy(prefs = prefs))
     @Synchronized fun category(name: String, color: Int, password: CharArray?, id: String? = null) {
         checkOpen()

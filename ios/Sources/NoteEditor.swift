@@ -29,7 +29,7 @@ struct NoteEditor: View {
                 if !status.isEmpty { Text(status).font(.caption).foregroundStyle(.secondary) }
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
-                        TextField("标题（留空取正文第一行）", text: $draft.title).font(.title2)
+                        TextField("标题（留空取正文第一行）", text: $draft.title).font(.title2).accessibilityIdentifier("noteTitle")
                         if draft.kind == "account" {
                             TextField("用户名 / 邮箱", text: $draft.username).textInputAutocapitalization(.never)
                             HStack { if reveal { TextField("密码", text: $draft.password) } else { SecureField("密码", text: $draft.password) }; Button { reveal.toggle() } label: { Image(systemName: reveal ? "eye.slash" : "eye") } }
@@ -39,7 +39,7 @@ struct NoteEditor: View {
                             }
                             TextField("网址", text: $draft.url).textInputAutocapitalization(.never)
                         }
-                        TextEditor(text: $draft.body).font(textFont).frame(minHeight: draft.kind == "account" ? 260 : 430)
+                        TextEditor(text: $draft.body).accessibilityIdentifier("noteBody").font(textFont).frame(minHeight: draft.kind == "account" ? 260 : 430)
                         ForEach(Array(draft.images.enumerated()), id: \.offset) { index, value in
                             if let data = Data(base64Encoded: value), let image = UIImage(data: data) {
                                 Image(uiImage: image).resizable().scaledToFit().frame(maxHeight: 230)

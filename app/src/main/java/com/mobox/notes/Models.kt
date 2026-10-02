@@ -40,10 +40,10 @@ data class Note(
         }
     }
 }
-data class Category(val id: String = uid(), val name: String, val color: Int = 0, val sealed: String? = null) {
-    fun json() = JSONObject().put("id", id).put("name", name).put("color", color).apply { sealed?.let { put("sealed", it) } }
+data class Category(val id: String = uid(), val name: String, val color: Int = 0, val sealed: String? = null, val pinned: Boolean = false) {
+    fun json() = JSONObject().put("id", id).put("name", name).put("color", color).put("pinned", pinned).apply { sealed?.let { put("sealed", it) } }
 }
-data class Preferences(val dark: Boolean = false, val grid: Boolean = true, val accent: Int = 0, val fontSize: Int = 17,
+data class Preferences(val dark: Boolean = false, val grid: Boolean = false, val accent: Int = 0, val fontSize: Int = 17,
     val sort: String = "updated_desc", val defaultDownloads: Boolean = true) {
     fun json() = JSONObject().put("dark", dark).put("grid", grid).put("accent", accent).put("fontSize", fontSize)
         .put("sort", sort).put("defaultDownloads", defaultDownloads)
@@ -60,7 +60,7 @@ data class Vault(val categories: List<Category>, val notes: List<Note> = emptyLi
             require(a.length() in 1..100) { "分类数量无效" }
             val cats = (0 until a.length()).map {
                 val c = a.getJSONObject(it)
-                Category(c.getString("id"), c.getString("name"), c.optInt("color").coerceIn(0, 4), if (c.has("sealed")) c.getString("sealed") else null)
+                Category(c.getString("id"), c.getString("name"), c.optInt("color").coerceIn(0, 4), if (c.has("sealed")) c.getString("sealed") else null, c.optBoolean("pinned"))
             }
             require(cats.map { it.id }.distinct().size == cats.size && cats.all { it.name.isNotBlank() && it.name.length <= 40 })
             val n = o.getJSONArray("notes")
@@ -70,7 +70,7 @@ data class Vault(val categories: List<Category>, val notes: List<Note> = emptyLi
             require(notes.all { note -> cats.any { it.id == note.categoryId && it.sealed == null } }) { "分类归属无效" }
             val p = o.optJSONObject("prefs") ?: JSONObject()
             val sort = p.optString("sort", "updated_desc").takeIf { it in NoteOrdering.options.keys } ?: "updated_desc"
-            return Vault(cats, notes, Preferences(p.optBoolean("dark"), p.optBoolean("grid", true), p.optInt("accent").coerceIn(0, 3), p.optInt("fontSize", 17).coerceIn(12, 28), sort, p.optBoolean("defaultDownloads", true)))
+            return Vault(cats, notes, Preferences(p.optBoolean("dark"), p.optBoolean("grid", false), p.optInt("accent").coerceIn(0, 3), p.optInt("fontSize", 17).coerceIn(12, 28), sort, p.optBoolean("defaultDownloads", true)))
         }
     }
 }

@@ -33,10 +33,19 @@ targets:
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
+  ShijianNotesUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [UITests]
+    dependencies:
+      - target: ShijianNotes
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
 schemes:
   ShijianNotes:
     build:
       targets:
         ShijianNotes: all
     test:
-      targets: [ShijianNotesTests]
+      targets: [ShijianNotesTests, ShijianNotesUITests]
