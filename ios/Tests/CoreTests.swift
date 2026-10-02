@@ -47,7 +47,7 @@ final class CoreTests: XCTestCase {
         let box = try XCTUnwrap(store.vault.categories.first(where: { $0.id == NoteStore.boxID }))
         do { try await store.moveToBox([n.id]); XCTFail("locked destination accepted") } catch { }
         try await store.unlockCategory(box, password: "Box-Private2026"); try await store.moveToBox([n.id]); store.lockCategory(box)
-        XCTAssertTrue(store.notes.isEmpty()); XCTAssertTrue(store.vault.notes.isEmpty())
+        XCTAssertTrue(store.notes.isEmpty); XCTAssertTrue(store.vault.notes.isEmpty)
         let data = try await store.portableBackup(password: "Backup-Only2026")
         XCTAssertThrowsError(try VaultCrypto.decrypt(data, password: "Local-Automatic2026"))
         let plain = try VaultCrypto.decrypt(data, password: "Backup-Only2026")
