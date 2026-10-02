@@ -1,10 +1,17 @@
 name: Build and test mobile apps
 on:
   workflow_dispatch:
+    inputs:
+      platform:
+        description: Platform to verify
+        type: choice
+        options: [all, android, ios]
+        default: all
 permissions:
   contents: read
 jobs:
   android:
+    if: inputs.platform != 'ios'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -43,17 +50,18 @@ jobs:
           name: SuixinNotes-Android
           path: app/build/outputs/apk/debug/app-debug.apk
   ios:
+    if: inputs.platform != 'android'
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
       - run: brew install xcodegen
       - run: cd ios && xcodegen generate
       - name: Build simulator app
-        run: xcodebuild -project ios/ShijianNotes.xcodeproj -scheme ShijianNotes -sdk iphonesimulator -configuration Debug -derivedDataPath ios/build CODE_SIGNING_ALLOWED=NO build
+        run: xcodebuild -project ios/ShijianNotes.xcodeproj -scheme ShijianNotes -sdk iphonesimulator -configuration Debug -derivedDataPath ios/build CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- build
       - name: Run iOS tests
         run: |
           DEVICE=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for k,v in d["devices"].items() if "iOS" in k for x in v if x["name"].startswith("iPhone")))')
-          xcodebuild -project ios/ShijianNotes.xcodeproj -scheme ShijianNotes -destination "platform=iOS Simulator,id=$DEVICE" -derivedDataPath ios/build CODE_SIGNING_ALLOWED=NO test
+          xcodebuild -project ios/ShijianNotes.xcodeproj -scheme ShijianNotes -destination "platform=iOS Simulator,id=$DEVICE" -derivedDataPath ios/build CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- test
       - run: cd ios/build/Build/Products/Debug-iphonesimulator && ditto -c -k --sequesterRsrc --keepParent ShijianNotes.app SuixinNotes-iOS-simulator.zip
       - uses: actions/upload-artifact@v4
         with:

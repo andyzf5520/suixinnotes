@@ -9,13 +9,14 @@ enum DeviceAccess {
         var q = query; q[kSecReturnData as String] = true; q[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: CFTypeRef?; let status = SecItemCopyMatching(q as CFDictionary, &result)
         if status == errSecItemNotFound { return nil }
-        guard status == errSecSuccess, let data = result as? Data, let value = String(data: data, encoding: .utf8) else { throw VaultError.locked }; return value
+        guard status == errSecSuccess else { throw NSError(domain: NSOSStatusErrorDomain, code: Int(status), userInfo: nil) }
+        guard let data = result as? Data, let value = String(data: data, encoding: .utf8) else { throw VaultError.invalid }; return value
     }
     static func save(_ value: String) throws {
         let fields: [String: Any] = [kSecValueData as String: Data(value.utf8), kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly]
         let status = SecItemUpdate(query as CFDictionary, fields as CFDictionary)
-        if status == errSecItemNotFound { var q = query; fields.forEach { q[$0.key] = $0.value }; guard SecItemAdd(q as CFDictionary, nil) == errSecSuccess else { throw VaultError.locked } }
-        else if status != errSecSuccess { throw VaultError.locked }
+        if status == errSecItemNotFound { var q = query; fields.forEach { q[$0.key] = $0.value }; let added = SecItemAdd(q as CFDictionary, nil); guard added == errSecSuccess else { throw NSError(domain: NSOSStatusErrorDomain, code: Int(added), userInfo: nil) } }
+        else if status != errSecSuccess { throw NSError(domain: NSOSStatusErrorDomain, code: Int(status), userInfo: nil) }
     }
     static func generate() throws -> String {
         var data = Data(count: 32)
