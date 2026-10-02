@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mobox.notes.SessionTest" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-10-02T03:26:15" hostname="DESKTOP-354GOFQ" time="3.874">
+  <properties/>
+  <testcase name="failureDoesNotCommitInMemoryOrReplaceExistingBackup" classname="com.mobox.notes.SessionTest" time="0.117"/>
+  <testcase name="duplicateCategoryAndCrossCategoryMoveRejected" classname="com.mobox.notes.SessionTest" time="0.223"/>
+  <testcase name="closeRejectsSavingAndRemovesVisibleSecrets" classname="com.mobox.notes.SessionTest" time="0.239"/>
+  <testcase name="privateCategoryIsAbsentFromOuterVaultAndLockClearsVisibleData" classname="com.mobox.notes.SessionTest" time="1.104"/>
+  <testcase name="changingMasterPreservesCategoryPasswordAndOldBackupPassword" classname="com.mobox.notes.SessionTest" time="0.977"/>
+  <testcase name="deletePrivateNotePersistsAndDoesNotAffectPublicNotes" classname="com.mobox.notes.SessionTest" time="1.214"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

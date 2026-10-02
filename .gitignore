@@ -1,0 +1,15 @@
+.gradle/
+build/
+app/build/
+local.properties
+*.keystore
+
+dist/
+release/
+*.apk
+*.ipa
+*.zip
+ios/build/
+ios/*.xcodeproj/
+ios/**/xcuserdata/
+.DS_Store

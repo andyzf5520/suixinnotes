@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mobox.notes.DisplayTest" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-10-02T03:26:14" hostname="DESKTOP-354GOFQ" time="0.031">
+  <properties/>
+  <testcase name="previousBackupsRemainReadableAndNewPreferencesPersist" classname="com.mobox.notes.DisplayTest" time="0.001"/>
+  <testcase name="fallbackTitleLengthIsBoundedAndNeverUsesPasswordFields" classname="com.mobox.notes.DisplayTest" time="0.002"/>
+  <testcase name="timestampSortingAndPinnedPriorityAreDeterministic" classname="com.mobox.notes.DisplayTest" time="0.025"/>
+  <testcase name="blankTitleUsesOnlyFirstBodyLineWithoutChangingStoredTitle" classname="com.mobox.notes.DisplayTest" time="0.0"/>
+  <testcase name="fallbackTitlesAreUsedAndEscapedInAllExportFormats" classname="com.mobox.notes.DisplayTest" time="0.001"/>
+  <testcase name="titleSortUsesFallbackAndKeepsPinsFirst" classname="com.mobox.notes.DisplayTest" time="0.002"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>
