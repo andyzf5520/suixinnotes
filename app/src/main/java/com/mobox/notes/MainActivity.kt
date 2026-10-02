@@ -384,7 +384,7 @@ Column(Modifier.fillMaxSize().safeDrawingPadding().padding(horizontal = 16.dp)) 
                     if(page in listOf("notes", "todo")) FloatingActionButton(onClick = { dialog = "new" }) { Icon(Icons.Outlined.Add, "新建记录") }
                 }) { padding ->
                     when(page) {
-                        "notes", "todo" -> Column(Modifier.padding(padding).fillMaxSize().padding(horizontal = 16.dp)) {
+                        "notes", "todo" -> Column(Modifier.padding(padding).fillMaxSize().testTag("mainNoteList").padding(horizontal = 16.dp)) {
                             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                                 var sortMenu by remember { mutableStateOf(false) }
                                 Box(Modifier.weight(1f)) {
