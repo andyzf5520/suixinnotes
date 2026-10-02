@@ -5,6 +5,19 @@ import org.junit.Test
 import java.util.Base64
 
 class CoreTest {
+    @Test fun sharedIosFixtureUsesUtf8PasswordAndIndependentDomain() {
+        val fixture = org.json.JSONObject(javaClass.classLoader!!.getResourceAsStream("compatibility.json")!!.bufferedReader().use { it.readText() })
+        val data = Base64.getDecoder().decode(fixture.getString("encryptedBase64"))
+        val password = fixture.getString("password").toCharArray()
+        val vault = Vault.read(Crypto.decrypt(data, password))
+        assertEquals("首行标题", vault.notes.single().displayTitle())
+        assertEquals(23, vault.notes.single().fontSize)
+        assertEquals(listOf("AQID"), vault.notes.single().images)
+        val domain = Base64.getDecoder().decode(vault.categories.last().sealed)
+        assertThrows(javax.crypto.AEADBadTagException::class.java) { Crypto.decrypt(domain, password) }
+        val plain = Crypto.decrypt(domain, fixture.getString("categoryPassword").toCharArray())
+        assertEquals("private", org.json.JSONObject(plain.toString(Charsets.UTF_8)).getString("categoryId"))
+    }
     private val password = "正确密码-Pass2026".toCharArray()
     @Test fun encryptedRoundTripAndNoPlaintext() {
         val source = "账号=alice；密码=SuperSecret-892；图片数据".toByteArray()
