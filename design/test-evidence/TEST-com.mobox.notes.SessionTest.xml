@@ -1,12 +1,18 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<testsuite name="com.mobox.notes.SessionTest" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-10-02T03:26:15" hostname="DESKTOP-354GOFQ" time="3.874">
+<testsuite name="com.mobox.notes.SessionTest" tests="12" skipped="0" failures="0" errors="0" timestamp="2026-10-02T06:25:56" hostname="runnervm8df0l" time="21.492">
   <properties/>
-  <testcase name="failureDoesNotCommitInMemoryOrReplaceExistingBackup" classname="com.mobox.notes.SessionTest" time="0.117"/>
-  <testcase name="duplicateCategoryAndCrossCategoryMoveRejected" classname="com.mobox.notes.SessionTest" time="0.223"/>
-  <testcase name="closeRejectsSavingAndRemovesVisibleSecrets" classname="com.mobox.notes.SessionTest" time="0.239"/>
-  <testcase name="privateCategoryIsAbsentFromOuterVaultAndLockClearsVisibleData" classname="com.mobox.notes.SessionTest" time="1.104"/>
-  <testcase name="changingMasterPreservesCategoryPasswordAndOldBackupPassword" classname="com.mobox.notes.SessionTest" time="0.977"/>
-  <testcase name="deletePrivateNotePersistsAndDoesNotAffectPublicNotes" classname="com.mobox.notes.SessionTest" time="1.214"/>
+  <testcase name="failedMovePreservesBothDiskAndVisibleOriginalNotes" classname="com.mobox.notes.SessionTest" time="1.302"/>
+  <testcase name="moveBackToOrdinaryAndBetweenFoldersPreservesRecordIdentity" classname="com.mobox.notes.SessionTest" time="2.204"/>
+  <testcase name="failureDoesNotCommitInMemoryOrReplaceExistingBackup" classname="com.mobox.notes.SessionTest" time="0.234"/>
+  <testcase name="portableBackupUsesDedicatedPasswordAndExcludesOpenedPlaintextDomains" classname="com.mobox.notes.SessionTest" time="1.97"/>
+  <testcase name="duplicateCategoryAndCrossCategoryMoveRejected" classname="com.mobox.notes.SessionTest" time="0.456"/>
+  <testcase name="batchMoveCombinesOrdinaryAndEncryptedSourcesWithoutLeakingContent" classname="com.mobox.notes.SessionTest" time="4.154"/>
+  <testcase name="closeRejectsSavingAndRemovesVisibleSecrets" classname="com.mobox.notes.SessionTest" time="0.458"/>
+  <testcase name="privateCategoryIsAbsentFromOuterVaultAndLockClearsVisibleData" classname="com.mobox.notes.SessionTest" time="2.042"/>
+  <testcase name="categoryPinAndDefaultRowLayoutSurviveSerialization" classname="com.mobox.notes.SessionTest" time="0.958"/>
+  <testcase name="boxPasswordChangeRejectsWrongOldAndKeepsOldBackupUsable" classname="com.mobox.notes.SessionTest" time="3.469"/>
+  <testcase name="changingMasterPreservesCategoryPasswordAndOldBackupPassword" classname="com.mobox.notes.SessionTest" time="1.9"/>
+  <testcase name="deletePrivateNotePersistsAndDoesNotAffectPublicNotes" classname="com.mobox.notes.SessionTest" time="2.342"/>
   <system-out><![CDATA[]]></system-out>
   <system-err><![CDATA[]]></system-err>
 </testsuite>

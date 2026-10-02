@@ -1,20 +1,21 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<testsuite name="com.mobox.notes.CoreTest" tests="14" skipped="0" failures="0" errors="0" timestamp="2026-10-02T03:26:12" hostname="DESKTOP-354GOFQ" time="2.572">
+<testsuite name="com.mobox.notes.CoreTest" tests="15" skipped="0" failures="0" errors="0" timestamp="2026-10-02T06:25:50" hostname="runnervm8df0l" time="5.849">
   <properties/>
-  <testcase name="encryptedRoundTripAndNoPlaintext" classname="com.mobox.notes.CoreTest" time="0.435"/>
-  <testcase name="wrongPasswordNeverReturnsPartialPlaintext" classname="com.mobox.notes.CoreTest" time="0.267"/>
-  <testcase name="tamperedCiphertextFailsAuthentication" classname="com.mobox.notes.CoreTest" time="0.31"/>
-  <testcase name="invalidCategoryReferencesAndDuplicateIdsRejected" classname="com.mobox.notes.CoreTest" time="0.033"/>
-  <testcase name="csvOnlyExportsAccounts" classname="com.mobox.notes.CoreTest" time="0.007"/>
-  <testcase name="textWarnsAboutMissingPicturesAndMasksPassword" classname="com.mobox.notes.CoreTest" time="0.013"/>
-  <testcase name="maliciousKdfParametersRejectedBeforeCostlyWork" classname="com.mobox.notes.CoreTest" time="0.147"/>
-  <testcase name="backupRoundTripPreservesEveryFieldAndImage" classname="com.mobox.notes.CoreTest" time="0.254"/>
+  <testcase name="encryptedRoundTripAndNoPlaintext" classname="com.mobox.notes.CoreTest" time="1.057"/>
+  <testcase name="wrongPasswordNeverReturnsPartialPlaintext" classname="com.mobox.notes.CoreTest" time="0.606"/>
+  <testcase name="tamperedCiphertextFailsAuthentication" classname="com.mobox.notes.CoreTest" time="0.51"/>
+  <testcase name="invalidCategoryReferencesAndDuplicateIdsRejected" classname="com.mobox.notes.CoreTest" time="0.041"/>
+  <testcase name="sharedIosFixtureUsesUtf8PasswordAndIndependentDomain" classname="com.mobox.notes.CoreTest" time="0.722"/>
+  <testcase name="csvOnlyExportsAccounts" classname="com.mobox.notes.CoreTest" time="0.016"/>
+  <testcase name="textWarnsAboutMissingPicturesAndMasksPassword" classname="com.mobox.notes.CoreTest" time="0.017"/>
+  <testcase name="maliciousKdfParametersRejectedBeforeCostlyWork" classname="com.mobox.notes.CoreTest" time="0.229"/>
+  <testcase name="backupRoundTripPreservesEveryFieldAndImage" classname="com.mobox.notes.CoreTest" time="0.489"/>
   <testcase name="truncatedOrUnknownFilesRejected" classname="com.mobox.notes.CoreTest" time="0.001"/>
-  <testcase name="htmlEscapesScriptsAndHidesSecretsByDefault" classname="com.mobox.notes.CoreTest" time="0.006"/>
-  <testcase name="tamperedHeaderFailsAuthentication" classname="com.mobox.notes.CoreTest" time="0.225"/>
-  <testcase name="encryptedCategoryCannotBeReadWithMasterPassword" classname="com.mobox.notes.CoreTest" time="0.629"/>
-  <testcase name="newSaltAndNonceForEachEncryption" classname="com.mobox.notes.CoreTest" time="0.242"/>
-  <testcase name="csvPreventsFormulaInjectionAndEscapesQuotes" classname="com.mobox.notes.CoreTest" time="0.0"/>
+  <testcase name="htmlEscapesScriptsAndHidesSecretsByDefault" classname="com.mobox.notes.CoreTest" time="0.013"/>
+  <testcase name="tamperedHeaderFailsAuthentication" classname="com.mobox.notes.CoreTest" time="0.448"/>
+  <testcase name="encryptedCategoryCannotBeReadWithMasterPassword" classname="com.mobox.notes.CoreTest" time="1.203"/>
+  <testcase name="newSaltAndNonceForEachEncryption" classname="com.mobox.notes.CoreTest" time="0.478"/>
+  <testcase name="csvPreventsFormulaInjectionAndEscapesQuotes" classname="com.mobox.notes.CoreTest" time="0.001"/>
   <system-out><![CDATA[]]></system-out>
   <system-err><![CDATA[]]></system-err>
 </testsuite>

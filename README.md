@@ -54,6 +54,6 @@ AES-256-GCM + PBKDF2-HMAC-SHA256 600,000 轮。普通本地库的随机访问凭
 
 [设计方案](design/设计与开发测试方案.md) · [原型](design/prototype.html) · [测试报告](design/开发测试报告.md)
 
-Android 39 项 JVM 测试覆盖加密、导出、撤销历史、批量移动和失败不丢数据；iOS XCTest 覆盖加密、备份、私密和移动。GitHub CI 另运行 Android/iOS 模拟器界面流程测试。实际结果见 Actions 和测试报告；模拟器通过不代表所有真机型号已验收。
+Android 39 项 JVM 测试覆盖加密、导出、撤销历史、批量移动和失败不丢数据；iOS XCTest 覆盖加密、备份、私密和移动。GitHub CI 的 Android/iOS 模拟器界面流程各 1 项均通过，iOS 核心 XCTest 6 项通过。实际结果见 Actions 和测试报告；模拟器通过不代表所有真机型号已验收。
 
 作者：**andy**。尚未指定开源许可，公开仓库不代表自动授予再分发许可。依赖组件分别遵循其自身许可证。

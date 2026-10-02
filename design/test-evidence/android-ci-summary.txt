@@ -1,0 +1,5 @@
+CI: https://github.com/andyzf5520/suixinnotes/actions/runs/36973183889
+Tested Android source commit: 9dace42
+39 JVM tests: passed
+1 Android API 35 simulator flow: passed
+Lint: No issues found.
