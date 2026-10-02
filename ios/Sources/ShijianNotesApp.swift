@@ -39,13 +39,13 @@ struct RootView: View {
                     Text("随心记事本").font(.largeTitle.bold())
                     Text("记录生活，安心保存").font(.caption).foregroundStyle(.secondary)
                     Text("把日常与秘密，妥帖收藏。")
-                    SecureField("原密码（旧版首次迁移）", text: $password).textFieldStyle(.roundedBorder)
-                    if !store.exists { SecureField("再次输入主密码", text: $confirmation).textFieldStyle(.roundedBorder); Text("至少 8 个字符，遗忘无法找回。独立分类仍需要自己的密码。").font(.caption) }
-                    Button(store.exists ? "解锁" : "创建保险库") {
-                        let p = password
-                        if !store.exists && (p.count < 8 || p != confirmation) { store.error = "密码至少 8 位且两次输入一致"; return }
-                        store.run { if store.exists { try await store.open(p) } else { try await store.create(p) }; password = ""; confirmation = "" }
-                    }.buttonStyle(.borderedProminent).disabled(store.busy)
+                    if store.legacyMigration {
+                        SecureField("原密码（旧版首次迁移）", text: $password).textFieldStyle(.roundedBorder)
+                        Button("迁移旧版数据") { let p = password; store.run { try await store.open(p); password = "" } }.buttonStyle(.borderedProminent).disabled(store.busy)
+                    } else {
+                        Text("正在准备本地笔记")
+                        if !store.busy { Button("重试自动打开") { store.run { try await store.autoOpen() } } }
+                    }
                     Button("从加密备份恢复") { importing = true }.disabled(store.busy)
                     if store.busy { ProgressView() }
                     if !store.error.isEmpty { Text(store.error).foregroundStyle(.red).font(.caption) }
@@ -72,6 +72,8 @@ struct RootView: View {
 struct MainView: View {
     @ObservedObject var store: NoteStore
     @State private var sidebar = false
+    @State private var categoryPrompt = false
+    @State private var categoryName = ""
     @State private var category: String?
     @State private var query = ""
     @State private var editing: Note?
@@ -116,6 +118,11 @@ struct MainView: View {
                 }
             }.tabItem { Label("笔记", systemImage: "note.text") }
             NavigationStack { SettingsView(store: store) }.tabItem { Label("设置", systemImage: "gearshape") }
+        }
+        .alert("新建分类", isPresented: $categoryPrompt) {
+            TextField("分类名称", text: $categoryName)
+            Button("创建") { let name = categoryName; store.run { try await store.addCategory(name, password: ""); categoryName = "" } }
+            Button("取消", role: .cancel) { categoryName = "" }
         }
         .sheet(item: $editing) { note in NoteEditor(store: store, initial: note) }
         .confirmationDialog("新建记录", isPresented: $createPrompt, titleVisibility: .visible) {
@@ -178,12 +185,13 @@ struct MainView: View {
     }
     private var sidebarList: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("分类").font(.title3.bold()).padding(.horizontal)
+            Text("随心记事本").font(.title3.bold()).padding(.horizontal)
             ScrollView {
                 VStack(alignment: .leading, spacing: 4) {
-                    Button("全部") { category = nil; selection.removeAll(); sidebar = false }.padding(8)
+                    Button("全部便签 (\(store.notes.count))") { category = nil; selection.removeAll(); sidebar = false }.padding(8)
+                    HStack { Text("分组").font(.headline); Spacer(); Button { categoryName = ""; categoryPrompt = true } label: { Image(systemName: "folder.badge.plus") }.accessibilityLabel("新建分类") }.padding(8)
                     ForEach(categories) { c in HStack {
-                        Button { category = c.id; selection.removeAll(); if !store.isOpen(c) { unlockTarget = c; domainPassword = ""; unlockPrompt = true } else { sidebar = false } } label: { Label(c.id == NoteStore.boxID ? "私密" : c.name, systemImage: c.sealed == nil ? "folder" : "lock") }.frame(maxWidth: .infinity, alignment: .leading)
+                        Button { category = c.id; selection.removeAll(); if !store.isOpen(c) { unlockTarget = c; domainPassword = ""; unlockPrompt = true } else { sidebar = false } } label: { Label("\(c.id == NoteStore.boxID ? "私密" : c.name) (\(store.isOpen(c) ? String(store.notes.filter { $0.categoryId == c.id }.count) : "已锁定"))", systemImage: c.sealed == nil ? "folder" : "lock") }.frame(maxWidth: .infinity, alignment: .leading)
                         Button { store.run { try await store.pinCategory(c.id, pinned: !c.pinned) } } label: { Image(systemName: c.pinned ? "pin.fill" : "pin") }.accessibilityLabel(c.pinned ? "取消分类置顶" : "置顶分类")
                     }.padding(8) }
                     if !categories.contains(where: { $0.id == NoteStore.boxID }) { Button("🔒 私密") { category = NoteStore.boxID; boxPassword = ""; boxConfirmation = ""; setupBox = true }.padding(8) }

@@ -82,7 +82,6 @@ class MainActivity : ComponentActivity() {
     }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         if(android.os.Build.VERSION.SDK_INT >= 33) registerReceiver(screenOffReceiver, IntentFilter(Intent.ACTION_SCREEN_OFF), Context.RECEIVER_NOT_EXPORTED)
         else registerReceiver(screenOffReceiver, IntentFilter(Intent.ACTION_SCREEN_OFF))
         setContent { MoBox(this) }
@@ -130,6 +129,7 @@ private fun family(key: String) = when(key) { "serif" -> FontFamily.Serif; "mono
     val store = remember { VaultStore(activity) }
     val deviceAccess = remember { DeviceAccess(activity) }
     var autoAttempted by remember { mutableStateOf(false) }
+    var legacyMigration by remember { mutableStateOf(false) }
     var foreground by remember { mutableStateOf(true) }
     var closing by remember { mutableStateOf(false) }
     var selecting by remember { mutableStateOf(false) }
@@ -214,14 +214,14 @@ private fun family(key: String) = when(key) { "serif" -> FontFamily.Serif; "mono
         activity.onForeground = { foreground = true; autoAttempted = false }
         onDispose { activity.onBackground = null; activity.onForeground = null }
     }
-    LaunchedEffect(foreground, autoAttempted, closing, session) {
+    LaunchedEffect(foreground, autoAttempted, closing, session, busy) {
         if(foreground && !autoAttempted && !closing && session == null && !busy) {
-            autoAttempted = true
+            autoAttempted = true; legacyMigration = false
             work({
                 var chars = deviceAccess.load()
                 if(chars == null && !store.exists()) { chars = deviceAccess.generate(); deviceAccess.save(chars) }
                 chars?.let { try { if(store.exists()) store.open(it) else store.create(it) } finally { it.fill('\u0000') } }
-            }) { s -> if(s != null) { session = s; refresh(s); activity.lastInteraction = SystemClock.elapsedRealtime() } }
+            }) { s -> if(s != null) { session = s; refresh(s); activity.lastInteraction = SystemClock.elapsedRealtime() } else legacyMigration = true }
         }
     }
     LaunchedEffect(session) {
@@ -299,6 +299,15 @@ private fun family(key: String) = when(key) { "serif" -> FontFamily.Serif; "mono
         } }, 30_000)
         message = "已复制，30 秒后尝试清除；后台可能受系统限制"
     }
+    val protectedScreen = legacyMigration && session == null ||
+        (drawerState.isOpen && vault.categories.any { it.sealed != null && session?.isOpen(it.id) == true }) ||
+        dialog in setOf("unlock", "box", "backupPassword", "restore") ||
+        (page == "editor" && (draft?.kind == "account" || vault.categories.any { it.id == draft?.categoryId && it.sealed != null })) ||
+        (page in listOf("notes", "todo") && notes.any { n -> (selected == null || n.categoryId == selected) && vault.categories.any { it.id == n.categoryId && it.sealed != null } })
+    SideEffect {
+        if(protectedScreen) activity.window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        else activity.window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+    }
     val prefs = vault.prefs
     val colors = if(prefs.dark) darkColorScheme(primary = accents[prefs.accent], background = Color(0xFF1D1D23), surface = Color(0xFF27272F)) else lightColorScheme(primary = accents[prefs.accent], background = Color(0xFFF6F4EF), surface = Color(0xFFFFFDFA))
     MaterialTheme(colorScheme = colors) {
@@ -309,9 +318,9 @@ private fun family(key: String) = when(key) { "serif" -> FontFamily.Serif; "mono
                     Text("记录生活，安心保存", style = MaterialTheme.typography.bodySmall)
                     Text("把日常与秘密，妥帖收藏。", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 12.dp))
                     Spacer(Modifier.height(32.dp))
-                    Text(if(store.exists()) "旧版数据首次迁移" else "正在准备本地笔记", style = MaterialTheme.typography.titleLarge)
+                    Text(if(legacyMigration) "旧版数据首次迁移" else "正在准备本地笔记", style = MaterialTheme.typography.titleLarge)
                     if(busy || closing || !autoAttempted) CircularProgressIndicator(Modifier.padding(20.dp))
-                    else if(store.exists()) {
+                    else if(legacyMigration) {
                     SecretField(password, { password = it }, "主密码", Modifier.padding(top = 18.dp))
                     if(!store.exists()) {
                         SecretField(confirmation, { confirmation = it }, "再次输入主密码", Modifier.padding(top = 12.dp))
@@ -325,6 +334,7 @@ private fun family(key: String) = when(key) { "serif" -> FontFamily.Serif; "mono
                         }
                     }, enabled = !busy, modifier = Modifier.fillMaxWidth().padding(top = 18.dp)) { Text(if(busy) "正在处理…" else if(store.exists()) "解锁" else "创建保险库") }
                     }
+                    if(autoAttempted && !busy && !closing && !legacyMigration) TextButton(onClick = { autoAttempted = false }) { Text("重试自动打开") }
                     TextButton(onClick = { activity.allowPicker(); openFile.launch(arrayOf("*/*")) }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("从加密备份恢复") }
                     if(store.previousExists()) TextButton(onClick = { dialog = "previous" }, enabled = !busy) { Text("切换至恢复前的本地版本") }
                     if(message.isNotEmpty()) Text(message, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(vertical = 12.dp))
@@ -335,17 +345,40 @@ private fun family(key: String) = when(key) { "serif" -> FontFamily.Serif; "mono
                     ModalDrawerSheet(Modifier.width(300.dp).testTag("sidebar")) {
 Column(Modifier.fillMaxSize().safeDrawingPadding().padding(horizontal = 16.dp)) {
                             Column(Modifier.fillMaxWidth().heightIn(max = 300.dp).verticalScroll(rememberScrollState()).padding(vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                FilterChip(selected == null, { selected = null }, label = { Text("全部") }, modifier = Modifier.fillMaxWidth())
-                                vault.categories.sortedByDescending { it.pinned }.forEach { c -> Row(verticalAlignment = Alignment.CenterVertically) {
-                                    FilterChip(selected == c.id, {
-                                        selected = c.id; selectionIds = emptySet()
-                                        if(session?.isOpen(c.id) == false) { categoryTarget = c; categoryPassword = ""; dialog = "unlock" }
-                                        else scope.launch { drawerState.close() }
-                                    }, label = { Text((if(c.sealed != null) "▣ " else "▤ ") + if(c.id == Session.BOX_ID) "私密" else c.name) }, modifier = Modifier.weight(1f))
-                                    IconButton(onClick = { val current = session!!; work({ current.pinCategory(c.id, !c.pinned) }) { refresh(current) } }, enabled = !busy) { Icon(Icons.Outlined.PushPin, if(c.pinned) "取消分类置顶" else "置顶分类", tint = if(c.pinned) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant) }
-                                } }
-                                if(vault.categories.none { it.id == Session.BOX_ID }) FilterChip(selected == Session.BOX_ID, { selected = Session.BOX_ID; password = ""; confirmation = ""; categoryPassword = ""; dialog = "box" }, label = { Text("▣ 私密") }, modifier = Modifier.fillMaxWidth())
-                                AssistChip({ page = "categories"; scope.launch { drawerState.close() } }, label = { Text("分类管理") })
+                                Text("随心记事本", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(vertical = 12.dp))
+                                TextButton(onClick = { selected = null; selectionIds = emptySet(); scope.launch { drawerState.close() } }, modifier = Modifier.fillMaxWidth()) {
+                                    Icon(Icons.Outlined.ViewList, null); Text("全部便签 (${notes.size})", Modifier.weight(1f).padding(start = 12.dp))
+                                }
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text("分组", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                                    IconButton(onClick = { categoryTarget = null; categoryName = ""; categoryColor = 0; categoryPrivate = false; categoryPassword = ""; dialog = "category" }, enabled = !busy) { Icon(Icons.Outlined.CreateNewFolder, "新建分类") }
+                                }
+                                vault.categories.sortedByDescending { it.pinned }.forEach { c ->
+                                    var menu by remember(c.id) { mutableStateOf(false) }
+                                    val locked = session?.isOpen(c.id) == false
+                                    val count = if(locked) "已锁定" else notes.count { it.categoryId == c.id }.toString()
+                                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().background(if(selected == c.id) MaterialTheme.colorScheme.primaryContainer else Color.Transparent, RoundedCornerShape(10.dp))) {
+                                        TextButton(onClick = {
+                                            selected = c.id; selectionIds = emptySet()
+                                            if(locked) { categoryTarget = c; categoryPassword = ""; dialog = "unlock" }
+                                            else scope.launch { drawerState.close() }
+                                        }, modifier = Modifier.weight(1f).testTag("category-${c.id}")) {
+                                            Icon(if(c.sealed != null) Icons.Outlined.Lock else Icons.Outlined.Folder, null, tint = Color(0xFF83CDDE))
+                                            Text("${if(c.id == Session.BOX_ID) "私密" else c.name} ($count)", Modifier.weight(1f).padding(start = 12.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                            if(c.pinned) Icon(Icons.Outlined.PushPin, null, Modifier.size(16.dp))
+                                        }
+                                        Box {
+                                            IconButton(onClick = { menu = true }) { Icon(Icons.Outlined.MoreHoriz, "分类选项 ${c.name}") }
+                                            DropdownMenu(menu, { menu = false }) {
+                                                DropdownMenuItem(text = { Text(if(c.pinned) "取消置顶" else "置顶分类") }, onClick = { menu = false; val current = session!!; work({ current.pinCategory(c.id, !c.pinned) }) { refresh(current) } }, enabled = !busy)
+                                                if(c.id != Session.BOX_ID) DropdownMenuItem(text = { Text("编辑分类") }, onClick = { menu = false; categoryTarget = c; categoryName = c.name; categoryColor = c.color; categoryPrivate = c.sealed != null; dialog = "category" })
+                                            }
+                                        }
+                                    }
+                                }
+                                if(vault.categories.none { it.id == Session.BOX_ID }) TextButton(onClick = { selected = Session.BOX_ID; password = ""; confirmation = ""; categoryPassword = ""; dialog = "box" }, modifier = Modifier.fillMaxWidth().testTag("category-${Session.BOX_ID}")) {
+                                    Icon(Icons.Outlined.Lock, null); Text("私密 (未设置)", Modifier.weight(1f).padding(start = 12.dp))
+                                }
                             }
                             Text("分类内的标题", style = MaterialTheme.typography.labelLarge)
                             val sidebarNotes = NoteOrdering.sorted(notes.filter { selected == null || it.categoryId == selected }, prefs.sort)
@@ -496,7 +529,7 @@ Column(Modifier.fillMaxSize().safeDrawingPadding().padding(horizontal = 16.dp)) 
                         else -> Column(Modifier.padding(padding).padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                             Text("本地保险库", style = MaterialTheme.typography.headlineSmall)
                             Text("内容默认加密 · 不联网 · 截图保护", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            listOf("分类管理" to "categories", "个性化" to "settings", "备份与导出" to "backup", "关于" to "about").forEach { (label,target) ->
+                            listOf("个性化" to "settings", "备份与导出" to "backup", "关于" to "about").forEach { (label,target) ->
                                 OutlinedButton(onClick = { page = target }, modifier = Modifier.fillMaxWidth()) { Text(label, modifier = Modifier.padding(8.dp)) }
                             }
                             OutlinedButton(onClick = { password = ""; confirmation = ""; categoryPassword = ""; dialog = "box" }, modifier = Modifier.fillMaxWidth()) { Text(if(vault.categories.any { it.id == Session.BOX_ID }) "修改私密密码" else "设置私密密码") }

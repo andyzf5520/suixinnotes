@@ -39,13 +39,6 @@ struct SettingsView: View {
                 Button(store.vault.categories.contains(where: { $0.id == NoteStore.boxID }) ? "修改私密密码" : "首次设置私密密码") { oldBoxPassword = ""; boxPassword = ""; boxConfirmation = ""; boxPrompt = true }
                 Text("普通笔记直接进入，只有私密内容需要独立密码。密码遗忘无法找回。").font(.caption)
             }
-            Section("分类") {
-                ForEach(store.vault.categories) { c in HStack { Text(c.name); Spacer(); if c.sealed != nil { Button(store.isOpen(c) ? "锁定" : "已锁定") { store.lockCategory(c) }.disabled(!store.isOpen(c)) } } }
-                TextField("新分类名称", text: $categoryName)
-                SecureField("独立密码（留空为普通分类）", text: $categoryPassword)
-                Button("新建分类") { let n = categoryName, p = categoryPassword; store.run { try await store.addCategory(n, password: p); categoryName = ""; categoryPassword = "" } }
-                Text("分类密码至少 8 位，各分类独立加密，遗忘无找回。 ").font(.caption)
-            }
             Section("加密备份") {
                 Button("导出完整加密备份") { backupPassword = ""; backupConfirmation = ""; backupPrompt = true }
                 Button("从备份恢复") { importing = true }

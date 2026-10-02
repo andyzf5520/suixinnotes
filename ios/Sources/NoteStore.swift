@@ -6,6 +6,7 @@ import Combine
     @Published var unlocked = false
     @Published var error = ""
     @Published var busy = false
+    @Published var legacyMigration = false
     private var master = ""
     private var opened: [String: Domain] = [:]
     private var passwords: [String: String] = [:]
@@ -34,9 +35,10 @@ import Combine
     }
     func autoOpen() async throws {
         guard !unlocked else { return }
+        legacyMigration = false
         if let password = try DeviceAccess.load() { if exists { try await open(password) } else { try await create(password) } }
         else if !exists { try await create(DeviceAccess.generate()) }
-        else { error = "旧版数据请首次输入原密码，之后自动进入普通笔记。" }
+        else { legacyMigration = true; error = "旧版数据请首次输入原密码，之后自动进入普通笔记。" }
     }
     func open(_ password: String) async throws {
         let url = file, generation = epoch
