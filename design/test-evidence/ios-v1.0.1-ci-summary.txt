@@ -1,0 +1,16 @@
+CI: https://github.com/andyzf5520/suixinnotes/actions/runs/36982572394
+Source: a7f6d3e
+2026-10-02T08:14:37.1773290Z Test Case '-[ShijianNotesTests.CoreTests testAndroidCompatibleFixtureWithUtf8Password]' passed (0.342 seconds).
+2026-10-02T08:14:37.2162290Z Test Case '-[ShijianNotesTests.CoreTests testCSVFormulaGuardAndModelRoundTrip]' passed (0.001 seconds).
+2026-10-02T08:14:37.2422990Z Test Case '-[ShijianNotesTests.CoreTests testEnvelopeAndWrongPassword]' passed (0.452 seconds).
+2026-10-02T08:14:38.6652840Z Test Case '-[ShijianNotesTests.CoreTests testMoveFoldersAndPrivateBoxKeepsFieldsAndBackupPortable]' passed (1.892 seconds).
+2026-10-02T08:14:40.3761360Z Test Case '-[ShijianNotesTests.CoreTests testPrivatePasswordChangeAndPinnedCategoryPersistence]' passed (1.740 seconds).
+2026-10-02T08:14:40.4842500Z Test Case '-[ShijianNotesTests.CoreTests testTitleFallbackAndExportHiding]' passed (0.001 seconds).
+2026-10-02T08:14:40.5628470Z 	 Executed 6 tests, with 0 failures (0 unexpected) in 4.429 (4.431) seconds
+2026-10-02T08:14:40.5832470Z 	 Executed 6 tests, with 0 failures (0 unexpected) in 4.429 (4.431) seconds
+2026-10-02T08:14:40.6036160Z 	 Executed 6 tests, with 0 failures (0 unexpected) in 4.429 (4.433) seconds
+2026-10-02T08:15:28.0781740Z Test Case '-[ShijianNotesUITests.MobileFlowTests testAutomaticEntryReturnSaveAndAbout]' passed (33.293 seconds).
+2026-10-02T08:15:28.0989040Z 	 Executed 1 test, with 0 failures (0 unexpected) in 33.293 (33.295) seconds
+2026-10-02T08:15:28.1211770Z 	 Executed 1 test, with 0 failures (0 unexpected) in 33.293 (33.296) seconds
+2026-10-02T08:15:28.1423280Z 	 Executed 1 test, with 0 failures (0 unexpected) in 33.293 (33.297) seconds
+2026-10-02T08:15:29.4004290Z ** TEST SUCCEEDED **
