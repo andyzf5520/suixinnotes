@@ -245,7 +245,10 @@ private fun family(key: String) = when(key) { "serif" -> FontFamily.Serif; "mono
             else if(d != savedDraft && d != failedDraft) { delay(1200); save() }
         }
     }
-    BackHandler(session != null && page != "notes") { if(page == "editor") save(true) else page = "notes" }
+    BackHandler(session != null && (drawerState.isOpen || page != "notes")) {
+        if(drawerState.isOpen) scope.launch { drawerState.close() }
+        else if(page == "editor") save(true) else page = "notes"
+    }
     val createFile = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
         val bytes = pendingOutput; pendingOutput = null
         if (uri != null && bytes != null) work({
