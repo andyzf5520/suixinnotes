@@ -334,7 +334,7 @@ private fun family(key: String) = when(key) { "serif" -> FontFamily.Serif; "mono
                 ModalNavigationDrawer(drawerState = drawerState, gesturesEnabled = page in listOf("notes", "todo"), drawerContent = {
                     ModalDrawerSheet(Modifier.width(300.dp).testTag("sidebar")) {
 Column(Modifier.fillMaxSize().safeDrawingPadding().padding(horizontal = 16.dp)) {
-                            Column(Modifier.fillMaxWidth().heightIn(max = 190.dp).verticalScroll(rememberScrollState()).padding(vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Column(Modifier.fillMaxWidth().heightIn(max = 300.dp).verticalScroll(rememberScrollState()).padding(vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                 FilterChip(selected == null, { selected = null }, label = { Text("全部") }, modifier = Modifier.fillMaxWidth())
                                 vault.categories.sortedByDescending { it.pinned }.forEach { c -> Row(verticalAlignment = Alignment.CenterVertically) {
                                     FilterChip(selected == c.id, {
