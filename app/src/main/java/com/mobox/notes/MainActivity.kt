@@ -709,7 +709,7 @@ Column(Modifier.fillMaxSize().safeDrawingPadding().padding(horizontal = 16.dp)) 
                     OutlinedTextField(note.url, { if(it.length <= 1000) change(note.copy(url = it)) }, label = { Text("网址") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
                 }
                 BasicTextField(note.body, { if(it.length <= 100_000) change(note.copy(body = it)) },
-                    modifier = Modifier.fillMaxWidth().heightIn(min = if(note.kind == "account") 200.dp else minimumBody),
+                    modifier = Modifier.fillMaxWidth().testTag("noteBody").heightIn(min = if(note.kind == "account") 200.dp else minimumBody),
                     textStyle = LocalTextStyle.current.copy(color = MaterialTheme.colorScheme.onSurface, fontSize = note.fontSize.sp, fontFamily = family(note.font), fontWeight = if(note.bold) FontWeight.Bold else FontWeight.Normal, fontStyle = if(note.italic) FontStyle.Italic else FontStyle.Normal),
                     decorationBox = { inner -> Box { if(note.body.isEmpty()) Text(if(note.kind == "account") "补充说明…" else "开始记录…", color = MaterialTheme.colorScheme.onSurfaceVariant); inner() } })
                 note.images.forEachIndexed { index, encoded ->

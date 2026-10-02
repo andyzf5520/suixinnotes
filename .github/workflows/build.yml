@@ -29,6 +29,15 @@ jobs:
           profile: pixel_6
           disable-animations: true
           script: ./gradlew :app:connectedDebugAndroidTest --console=plain
+      - name: Save Android test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Android-test-evidence
+          path: |
+            app/build/outputs/androidTest-results/connected/
+            app/build/test-results/testDebugUnitTest/
+            app/build/reports/lint-results-debug.txt
       - uses: actions/upload-artifact@v4
         with:
           name: SuixinNotes-Android
