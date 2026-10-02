@@ -332,7 +332,7 @@ private fun family(key: String) = when(key) { "serif" -> FontFamily.Serif; "mono
                 }
             } else {
                 ModalNavigationDrawer(drawerState = drawerState, gesturesEnabled = page in listOf("notes", "todo"), drawerContent = {
-                    ModalDrawerSheet(Modifier.width(300.dp)) {
+                    ModalDrawerSheet(Modifier.width(300.dp).testTag("sidebar")) {
 Column(Modifier.fillMaxSize().safeDrawingPadding().padding(horizontal = 16.dp)) {
                             Column(Modifier.fillMaxWidth().heightIn(max = 190.dp).verticalScroll(rememberScrollState()).padding(vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                 FilterChip(selected == null, { selected = null }, label = { Text("全部") }, modifier = Modifier.fillMaxWidth())
@@ -506,7 +506,7 @@ Column(Modifier.fillMaxSize().safeDrawingPadding().padding(horizontal = 16.dp)) 
                 }
             }
             }
-            if(dialog.isNotEmpty()) AlertDialog(onDismissRequest = { if(!busy) clearDialogs() }, title = { Text(when(dialog) {
+            if(dialog.isNotEmpty()) AlertDialog(modifier = Modifier.testTag("appDialog"), onDismissRequest = { if(!busy) clearDialogs() }, title = { Text(when(dialog) {
                 "move" -> "移入分类"; "new" -> "记下一点什么"; "category" -> if(categoryTarget == null) "新建分类" else "编辑分类"; "unlock" -> "解锁 ${categoryTarget?.name}";
                 "restore" -> "恢复加密备份"; "export" -> "确认明文导出"; "delete" -> "删除记录？"; "box" -> if(vault.categories.any { it.id == Session.BOX_ID }) "修改私密密码" else "首次设置私密密码"; "backupPassword" -> "设置备份密码"; else -> "切换本地版本？"
             }) }, text = {
